@@ -96,9 +96,15 @@ def build_request_headers(
     simulated_trading: bool,
     timestamp_ms: int,
 ) -> dict[str, str]:
-    """组装请求头。私有接口需要凭证，缺凭证在这里显式报错。"""
+    """组装请求头。私有接口需要凭证，缺凭证在这里显式报错。
 
-    headers = {"Content-Type": "application/json"}
+    User-Agent 必须显式设置: urllib 默认 UA 会被 OKX 的 CDN 直接拒绝(403)。
+    """
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "DivergenceQuant-Engine/0.2",
+    }
     if simulated_trading:
         headers["x-simulated-trading"] = "1"
     if credentials is None:

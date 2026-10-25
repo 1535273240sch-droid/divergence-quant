@@ -60,6 +60,45 @@ logger = logging.getLogger("dquant.engine")
 OKX_PUBLIC_BASE_URL = "https://www.okx.com"
 DEFAULT_DB_PATH = "engine.db"
 
+# OKX 模拟盘凭证的环境变量名 (.env.example 同名)
+OKX_DEMO_KEY_ENV = "OKX_DEMO_API_KEY"
+OKX_DEMO_SECRET_ENV = "OKX_DEMO_API_SECRET"
+OKX_DEMO_PASSPHRASE_ENV = "OKX_DEMO_PASSPHRASE"
+
+
+def load_env_file(path: str | Path = ".env") -> dict[str, str]:
+    """读取 .env 键值对并注入环境变量 (已存在的环境变量不覆盖)。
+
+    行格式 KEY=VALUE, 支持 # 注释与成对引号; 无第三方依赖。
+    """
+    env_path = Path(path)
+    if not env_path.is_file():
+        return {}
+    loaded: dict[str, str] = {}
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+            loaded[key] = value
+    return loaded
+
+
+def load_okx_credentials() -> OkxCredentials | None:  # noqa: F821
+    """从环境变量组装 OKX 模拟盘凭证; 三项不全则返回 None (公开行情无需凭证)。"""
+    from dquant.adapters.okx import OkxCredentials
+
+    api_key = os.environ.get(OKX_DEMO_KEY_ENV, "").strip()
+    secret = os.environ.get(OKX_DEMO_SECRET_ENV, "").strip()
+    passphrase = os.environ.get(OKX_DEMO_PASSPHRASE_ENV, "").strip()
+    if not (api_key and secret and passphrase):
+        return None
+    return OkxCredentials(api_key=api_key, secret=secret, passphrase=passphrase)
+
 SYNTH_UNIVERSE = (
     "BTC-USDT-SWAP",
     "ETH-USDT-SWAP",
@@ -278,6 +317,7 @@ class EngineOptions:
 class TradingEngine:
     def __init__(self, options: EngineOptions) -> None:
         self.options = options
+        load_env_file()  # .env 中的密钥/连接串注入环境 (不覆盖已有变量)
         self.settings: AppSettings = self._load_settings()
         self._sync_engine = create_engine(f"sqlite:///{options.db_path}", future=True)
         Base.metadata.create_all(self._sync_engine)
@@ -328,10 +368,24 @@ class TradingEngine:
     async def _init_okx(self) -> None:
         from dquant.adapters.okx import OkxAdapter, UrllibTransport
 
-        transport = UrllibTransport(OKX_PUBLIC_BASE_URL, simulated_trading=True)
+        creds = load_okx_credentials()
+        if creds is not None:
+            logger.info("OKX 模拟盘密钥已加载 (私有接口可用: 余额/持仓/订单)")
+        else:
+            logger.info(
+                "未检测到 OKX 密钥 (%s/%s/%s), 仅使用公开行情接口 (K线/Ticker 无需密钥)",
+                OKX_DEMO_KEY_ENV, OKX_DEMO_SECRET_ENV, OKX_DEMO_PASSPHRASE_ENV,
+            )
+        transport = UrllibTransport(OKX_PUBLIC_BASE_URL, creds, simulated_trading=True)
         adapter = OkxAdapter(transport, mode="demo")
         transport.clock_offset_ms = await adapter.sync_time()
         self._adapter = adapter
+        if creds is not None:
+            try:
+                balance = await adapter.fetch_balance()
+                logger.info("密钥验证通过, 模拟盘账户权益: %s USDT", balance.total_equity_usd)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("密钥验证失败 (行情采集不受影响): %s", exc)
 
     async def initialize(self) -> None:
         if self.options.source == "okx":
@@ -370,10 +424,12 @@ class TradingEngine:
         adapter = self._adapter
         assert adapter is not None
         tickers = await adapter.fetch_tickers(InstrumentType.SWAP)
-        history = {i: 0 for i in self.instruments}
+        # 采集前预筛: 历史根数尚未入库(首轮全为 0), 以 1 占位放行, 仅按成交额/状态/计价币排序;
+        # 真正带历史根数门槛的筛选发生在数据落库后的 _build_inputs_sync。
+        history = {inst_id: 1 for inst_id in self.instruments}
         selected = screen_universe(
             list(self.instruments.values()), tickers, history,
-            config=UniverseConfig(top_n_by_volume=self.options.top_n, min_history_bars=0),
+            config=UniverseConfig(top_n_by_volume=self.options.top_n, min_history_bars=1),
         )
         inst_ids = selected.selected_inst_ids
         bars = [CandleBar.ONE_DAY, CandleBar.FOUR_HOUR, CandleBar.ONE_HOUR]
@@ -385,7 +441,7 @@ class TradingEngine:
                 def _one(inst_id: str = inst_id, bar: CandleBar = bar, lookback: int = lookback) -> int:
                     runner = AsyncAdapterRunner(adapter)  # type: ignore[arg-type]
                     with self._session_factory() as session:
-                        stats = update_incremental(runner, session, inst_id, bar.value, lookback_ms=lookback)
+                        stats = update_incremental(runner, session, inst_id, bar, lookback_ms=lookback)
                         session.commit()
                         return stats.upserted_rows
 
@@ -420,7 +476,7 @@ class TradingEngine:
                 history_bars,
                 config=UniverseConfig(
                     top_n_by_volume=self.options.top_n,
-                    min_history_bars=min(200, min(history_bars.values() or [0])),
+                    min_history_bars=max(1, min(200, min(history_bars.values() or [1]))),
                 ),
             )
             keep = set(selected.selected_inst_ids)

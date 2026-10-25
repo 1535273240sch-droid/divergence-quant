@@ -361,7 +361,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    bars = [b for b in (args.bar or ["1D", "4H", "1H"])]
+    from dquant.contracts.types import CandleBar as _CandleBar
+
+    bars = [_CandleBar(b) for b in (args.bar or ["1D", "4H", "1H"])]
     engine = create_engine(f"sqlite:///{args.db}", future=True)
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine, future=True)

@@ -273,3 +273,62 @@ def test_select_signals_dedupes_same_signal_id() -> None:
     # 同一策略在两个 context 上重复发同一 signal_id
     result = select_signals([first], [SimpleNamespace(candidate=None), SimpleNamespace(candidate=None)])
     assert [s.signal_id for s in result] == ["a1"]
+
+
+# ---------------------------------------------------------------------------
+# OKX 真实数据链路: User-Agent / .env 加载 / 密钥读取
+# ---------------------------------------------------------------------------
+def test_okx_request_headers_include_user_agent() -> None:
+    """OKX CDN 拒绝 urllib 默认 UA (403), 请求头必须显式携带 User-Agent。"""
+    from dquant.adapters.okx import build_request_headers
+
+    headers = build_request_headers(None, "GET", "/api/v5/public/time", "", simulated_trading=True, timestamp_ms=0)
+    assert "User-Agent" in headers and headers["User-Agent"]
+    assert headers["x-simulated-trading"] == "1"
+
+
+def test_load_env_file_parses_and_never_overrides(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    from dquant.scheduler.engine import load_env_file
+
+    env = tmp_path / ".env"
+    env.write_text(
+        "# 注释行\n"
+        "OKX_DEMO_API_KEY=abc123\n"
+        "OKX_DEMO_API_SECRET='quoted-secret'\n"
+        'OKX_DEMO_PASSPHRASE="quoted-pass"\n'
+        "EXISTING_VAR=from-file\n"
+        "\n"
+        "INVALID_LINE_NO_EQUALS\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OKX_DEMO_API_KEY", raising=False)
+    monkeypatch.setenv("EXISTING_VAR", "from-env")
+
+    import os
+
+    loaded = load_env_file(env)
+    assert os.environ["OKX_DEMO_API_KEY"] == "abc123"
+    assert os.environ["OKX_DEMO_API_SECRET"] == "quoted-secret"
+    assert os.environ["OKX_DEMO_PASSPHRASE"] == "quoted-pass"
+    assert os.environ["EXISTING_VAR"] == "from-env"  # 已有环境变量不被覆盖
+    assert set(loaded) == {"OKX_DEMO_API_KEY", "OKX_DEMO_API_SECRET", "OKX_DEMO_PASSPHRASE"}
+
+    assert load_env_file(tmp_path / "missing.env") == {}
+
+
+def test_load_okx_credentials_partial_and_complete(monkeypatch) -> None:  # noqa: ANN001
+    from dquant.adapters.okx import OkxCredentials
+    from dquant.scheduler.engine import load_okx_credentials
+
+    for var in ("OKX_DEMO_API_KEY", "OKX_DEMO_API_SECRET", "OKX_DEMO_PASSPHRASE"):
+        monkeypatch.delenv(var, raising=False)
+    assert load_okx_credentials() is None
+
+    monkeypatch.setenv("OKX_DEMO_API_KEY", "key")
+    monkeypatch.setenv("OKX_DEMO_API_SECRET", "secret")
+    assert load_okx_credentials() is None  # 缺 passphrase 仍为 None
+
+    monkeypatch.setenv("OKX_DEMO_PASSPHRASE", "pass")
+    creds = load_okx_credentials()
+    assert isinstance(creds, OkxCredentials)
+    assert (creds.api_key, creds.secret, creds.passphrase) == ("key", "secret", "pass")
