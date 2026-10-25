@@ -339,3 +339,56 @@ def load_or_ensure_history_size(
 
 def _default_now_ms() -> int:
     return utc_now_ms()
+
+
+def main(argv: list[str] | None = None) -> int:
+    """docker-compose collector 服务入口: 对指定币种周期做一次性增量更新。"""
+    import argparse
+    import logging
+
+    import asyncio
+
+    from dquant.adapters.okx import OkxAdapter, UrllibTransport
+    from dquant.db.models import Base
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    parser = argparse.ArgumentParser(prog="dquant.data.collector", description="OKX 行情增量采集")
+    parser.add_argument("--inst", action="append", required=True, help="交易对, 可多次传入")
+    parser.add_argument("--bar", action="append", default=None, help="周期 1H/4H/1D, 可多次传入")
+    parser.add_argument("--db", default="engine.db")
+    parser.add_argument("--lookback-bars", type=int, default=320)
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    bars = [b for b in (args.bar or ["1D", "4H", "1H"])]
+    engine = create_engine(f"sqlite:///{args.db}", future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine, future=True)
+
+    async def _run() -> int:
+        transport = UrllibTransport("https://www.okx.com", simulated_trading=True)
+        adapter = OkxAdapter(transport, mode="demo")
+        transport.clock_offset_ms = await adapter.sync_time()
+        runner = AsyncAdapterRunner(adapter)
+        total = 0
+        with factory() as session:
+            for inst_id in args.inst:
+                for bar in bars:
+                    stats = update_incremental(
+                        runner, session, inst_id, bar, lookback_ms=args.lookback_bars * bar_to_ms(bar)
+                    )
+                    total += stats.upserted_rows
+            session.commit()
+        return total
+
+    written = asyncio.run(_run())
+    logger.info("collector 完成: %d 行写入", written)
+    return 0
+
+
+if __name__ == "__main__":
+    import logging
+    import sys
+
+    sys.exit(main())
