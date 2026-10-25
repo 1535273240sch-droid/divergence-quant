@@ -1,0 +1,44 @@
+# DivergenceQuant Prometheus 指标采集配置
+# 覆盖容器、后端 API、量化引擎、Redis、PostgreSQL 与操作系统基础指标
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+rule_files:
+  - "alerts.yml"
+
+scrape_configs:
+  # 1. 交易核心引擎与调度器指标
+  - job_name: "dquant_engine"
+    static_configs:
+      - targets: ["engine:9100"]
+    metrics_path: /metrics
+
+  # 2. FastAPI 后端与鉴权指标
+  - job_name: "dquant_api"
+    static_configs:
+      - targets: ["api:8000"]
+    metrics_path: /metrics
+
+  # 3. 行情数据采集器指标
+  - job_name: "dquant_collector"
+    static_configs:
+      - targets: ["collector:9101"]
+    metrics_path: /metrics
+
+  # 4. Redis 缓存指标
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis:6379"]
+
+  # 5. PostgreSQL 数据库指标
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres:5432"]
+
+  # 6. Prometheus 自身运行指标
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

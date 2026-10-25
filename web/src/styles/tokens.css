@@ -1,0 +1,136 @@
+:root {
+  /* ===== 表面层级（§17.3.1）===== */
+  --bg-canvas: #000000;
+  --bg-surface-1: #0A0B0D;
+  --bg-surface-2: #111316;
+  --bg-surface-3: #181B1F;
+  --bg-glass: rgba(18, 22, 28, 0.65);
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+
+  /* ===== 边框与高光 ===== */
+  --border-hairline: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-glass: rgba(255, 255, 255, 0.12);
+  --highlight-top: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  --shadow-float: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 12px 32px -8px rgba(0, 0, 0, 0.8);
+  --focus-halo: 0 0 0 2px rgba(255, 255, 255, 0.12);
+
+  /* ===== 文字 ===== */
+  --text-primary: #FFFFFF;
+  --text-secondary: #CBD5E1;
+  --text-tertiary: rgba(203, 213, 225, 0.55);
+  --text-disabled: rgba(203, 213, 225, 0.32);
+  --text-on-solid: #000000;
+
+  /* ===== 语义色：全站仅有的“彩色” ===== */
+  --up: #00F5A0;
+  --up-muted: rgba(0, 245, 160, 0.12);
+  --up-line: rgba(0, 245, 160, 0.24);
+  --down: #FF4D5E;
+  --down-muted: rgba(255, 77, 94, 0.12);
+  --down-line: rgba(255, 77, 94, 0.24);
+  --neutral-regime: #94A3B8;
+  --neutral-muted: rgba(148, 163, 184, 0.12);
+  --neutral-line: rgba(148, 163, 184, 0.24);
+  --warn: #FFB547;
+  --warn-muted: rgba(255, 181, 71, 0.12);
+  --warn-line: rgba(255, 181, 71, 0.24);
+  --focus-ring: #FFFFFF;
+
+  /* ===== 主按钮（白底黑字）交互态 ===== */
+  --solid-white: #FFFFFF;
+  --solid-white-hover: #E2E8F0;
+
+  /* ===== 字体 ===== */
+  --font-sans: "Inter Variable", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+
+  /* ===== 字重 / 字距 / 行高（与密度无关）===== */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --ls-display: -0.03em;
+  --ls-h1: -0.02em;
+  --ls-h2: -0.01em;
+  --ls-small: 0.01em;
+  --ls-label: 0.06em;
+  --ls-price-lg: -0.02em;
+  --lh-display: 1.15;
+  --lh-h1: 1.3;
+  --lh-h2: 1.4;
+  --lh-body: 1.6;
+  --lh-small: 1.5;
+  --lh-label: 1.4;
+  --lh-price-lg: 1.2;
+
+  /* ===== 间距（4px 网格）===== */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 48px;
+
+  /* ===== 圆角 ===== */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 12px;
+  --r-tag: 3px;
+
+  /* ===== 固定尺寸 ===== */
+  --topbar-h: 48px;
+  --topbar-h-mobile: 44px;
+  --statusbar-h: 24px;
+  --tabbar-h: 56px;
+  --touch-min: 44px;
+  --tag-h: 18px;
+  --dot-size: 6px;
+  --hairline: 1px;
+
+  /* ===== 动效 ===== */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-instant: 80ms;
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --dur-chart: 600ms;
+}
+
+/* ===== 紧凑密度（默认）===== */
+[data-density="compact"] {
+  --fs-display: 28px;
+  --fs-h1: 18px;
+  --fs-h2: 14px;
+  --fs-body: 12px;
+  --fs-small: 11px;
+  --fs-label: 10px;
+  --fs-price-lg: 20px;
+  --row-h: 28px;
+  --gap-panel: 4px;
+  --pad-panel: 12px;
+  --ctl-h-sm: 24px;
+  --ctl-h-md: 28px;
+  --ctl-h-lg: 36px;
+}
+
+/* ===== 舒适密度 ===== */
+[data-density="comfortable"] {
+  --fs-display: 32px;
+  --fs-h1: 20px;
+  --fs-h2: 15px;
+  --fs-body: 13px;
+  --fs-small: 12px;
+  --fs-label: 11px;
+  --fs-price-lg: 24px;
+  --row-h: 36px;
+  --gap-panel: 8px;
+  --pad-panel: 16px;
+  --ctl-h-sm: 28px;
+  --ctl-h-md: 32px;
+  --ctl-h-lg: 40px;
+}

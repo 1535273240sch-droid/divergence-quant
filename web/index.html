@@ -1,0 +1,1023 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#000000" />
+    <title>DivergenceQuant · OKX USDT 永续背离量化终端</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23000000'/%3E%3Cpath d='M7 8h7a6 6 0 0 1 0 12H7V8zm12 4a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm3 8l4 4' stroke='%2300F5A0' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-density="compact" data-mode="demo" data-halt="false">
+    <div class="app-shell">
+      <!-- 48px Exchange Topbar -->
+      <header class="topbar">
+        <div class="brand-mark" aria-label="DivergenceQuant">
+          <span class="brand-glyph">DQ</span>
+          <span class="brand-name">DivergenceQuant</span>
+          <span class="brand-sub">OKX SWAP</span>
+        </div>
+
+        <div class="top-ticker-strip" id="topTickerStrip" aria-label="核心行情快览">
+          <button class="top-ticker-item" data-jump-symbol="BTC">
+            <b>BTC</b>
+            <span class="num" data-top-price="BTC">68,018.0</span>
+            <span class="num negative" data-top-chg="BTC">-0.59%</span>
+          </button>
+          <button class="top-ticker-item" data-jump-symbol="ETH">
+            <b>ETH</b>
+            <span class="num" data-top-price="ETH">3,452.80</span>
+            <span class="num positive" data-top-chg="ETH">+1.84%</span>
+          </button>
+          <button class="top-ticker-item" data-jump-symbol="SOL">
+            <b>SOL</b>
+            <span class="num" data-top-price="SOL">182.35</span>
+            <span class="num positive" data-top-chg="SOL">+3.20%</span>
+          </button>
+        </div>
+
+        <nav class="main-nav" aria-label="主导航">
+          <button class="nav-item is-active" data-view="overview">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+            <span>总览</span>
+          </button>
+          <button class="nav-item" data-view="screener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+            <span>选币器</span>
+            <span class="nav-badge" id="navScreenerCount">12</span>
+          </button>
+          <button class="nav-item" data-view="workspace">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
+            <span>工作台</span>
+          </button>
+          <button class="nav-item" data-view="positions">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            <span>持仓与确认</span>
+            <span class="nav-badge warn" id="navConfirmCount">2</span>
+          </button>
+          <button class="nav-item" data-view="strategies">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v6m0 6v6M5 8h4m6 8h4M3 16h12M9 8h12"/></svg>
+            <span>策略与进化</span>
+          </button>
+          <button class="nav-item" data-view="backtest">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5m4-1v5l3 2"/></svg>
+            <span>回测</span>
+          </button>
+          <button class="nav-item" data-view="risk">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>风控与日志</span>
+          </button>
+        </nav>
+
+        <div class="topbar-actions">
+          <button class="command-trigger" id="commandTrigger" aria-label="打开命令面板">
+            <span>搜索 / 命令</span>
+            <kbd>⌘K</kbd>
+          </button>
+          <button class="mode-badge" id="modeToggleBtn" title="点击切换模拟盘 / 实盘预览">
+            <i class="status-dot warn" id="modeDot"></i>
+            <span id="modeBadgeText">模拟盘 · 全自动</span>
+          </button>
+          <button class="secondary-button" id="densityToggle" title="快捷键 D 切换密度">舒适密度</button>
+          <span class="connection-pill" title="OKX WebSocket 实时行情延迟">
+            <i class="status-dot live" id="wsDot"></i>
+            <span class="num" id="wsLatency">28ms</span>
+          </span>
+          <span class="top-time num" id="topTime">10-24 23:45:00</span>
+          <button class="icon-button" id="shortcutHelpBtn" aria-label="快捷键帮助" title="快捷键帮助 (?)">?</button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <!-- ==================== VIEW 1: OVERVIEW ==================== -->
+        <section class="view is-visible" data-view-panel="overview">
+          <div class="view-toolbar">
+            <div class="view-title-group">
+              <h1>全景总览</h1>
+              <span class="toolbar-divider"></span>
+              <span class="toolbar-meta">趋势周期 <b>1D (UTC+8)</b></span>
+              <span class="toolbar-meta">主信号 <b>4H MACD 柱段</b></span>
+              <span class="toolbar-meta">触发周期 <b>1H 结构突破</b></span>
+              <span class="toolbar-meta">风控档位 <b class="num">small_account · 逐仓</b></span>
+            </div>
+            <div class="heading-actions">
+              <span class="toolbar-meta num" id="lastScanLabel">上次扫描 20:00:03 · 下次 03:54:12</span>
+              <button class="primary-button" id="scanButton">立即扫描全市场</button>
+            </div>
+          </div>
+
+          <!-- Unified KPI Strip with Radial Spotlight -->
+          <div class="kpi-strip panel spotlight-surface" id="kpiStrip">
+            <div class="kpi-block">
+              <div class="kpi-header">
+                <span class="kpi-label">账户总权益 · USDT</span>
+                <span class="tag tag-up num" id="kpiEquityPct">+1.52%</span>
+              </div>
+              <strong class="kpi-value num" id="kpiEquityVal">12,480.52</strong>
+              <div class="kpi-footer">
+                <span>可用保证金 <b class="num" id="kpiAvailMargin">8,910.40</b></span>
+                <span class="num">最高 12,894.00</span>
+              </div>
+            </div>
+
+            <div class="kpi-block">
+              <div class="kpi-header">
+                <span class="kpi-label">今日综合盈亏</span>
+                <span class="muted-text num">UTC+8 00:00 起</span>
+              </div>
+              <strong class="kpi-value num positive" id="kpiTodayPnl">+186.40</strong>
+              <div class="kpi-footer">
+                <span>已实现 <b class="num positive">+144.22</b></span>
+                <span>手续费 <b class="num">-3.18</b></span>
+              </div>
+            </div>
+
+            <div class="kpi-block">
+              <div class="kpi-header">
+                <span class="kpi-label">在途浮动盈亏</span>
+                <span class="muted-text num" id="kpiPosCountMeta">3 个持仓</span>
+              </div>
+              <strong class="kpi-value num positive" id="kpiUnrealizedPnl">+42.18</strong>
+              <div class="kpi-footer">
+                <span>多头 <b class="num positive">+45.02</b></span>
+                <span>空头 <b class="num negative">-2.84</b></span>
+              </div>
+            </div>
+
+            <div class="kpi-block">
+              <div class="kpi-header">
+                <span class="kpi-label">当前最大回撤</span>
+                <span class="muted-text num">熔断阈值 15.0%</span>
+              </div>
+              <strong class="kpi-value num" id="kpiDrawdownVal">-3.21%</strong>
+              <div class="meter"><span id="kpiDrawdownBar" style="width: 21.4%"></span></div>
+              <div class="kpi-footer">
+                <span>距离熔断还余 <b class="num">11.79%</b></span>
+                <span class="positive">安全</span>
+              </div>
+            </div>
+
+            <div class="kpi-block">
+              <div class="kpi-header">
+                <span class="kpi-label">持仓槽位占用</span>
+                <span class="muted-text">小资金档上限</span>
+              </div>
+              <strong class="kpi-value num"><span id="kpiActiveSlots">3</span> <small>/ 3</small></strong>
+              <div class="kpi-footer">
+                <span>同向 2/2 · 逆势 1/1</span>
+              </div>
+            </div>
+
+            <div class="kpi-block kpi-status">
+              <div class="kpi-header">
+                <span class="kpi-label">风控与大盘门禁</span>
+                <span class="tag tag-up" id="kpiRiskBadge"><i class="status-dot live"></i>正常放行</span>
+              </div>
+              <strong class="kpi-value num" style="font-size: 18px" id="kpiRiskHeadline">日亏已用 0.0% / 3.0%</strong>
+              <div class="kpi-footer">
+                <span>BTC 观察期 · 周末系数 <b class="num warn-text">0.70×</b></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Middle Grid: Equity Curve (8 cols) + Exposure (4 cols) -->
+          <div class="overview-grid">
+            <section class="panel chart-panel">
+              <div class="panel-heading">
+                <div class="panel-heading-left">
+                  <h2>账户资金曲线与水下回撤</h2>
+                  <span class="panel-subtitle">Equity &amp; Drawdown · 模拟盘实时净值</span>
+                </div>
+                <div class="heading-actions">
+                  <button class="filter-chip is-checked" id="toggleBenchLine">对比 BTC</button>
+                  <div class="segmented" role="tablist" id="equityRangeTabs">
+                    <button class="segment is-active" data-range="7D">7D</button>
+                    <button class="segment" data-range="30D">30D</button>
+                    <button class="segment" data-range="90D">90D</button>
+                    <button class="segment" data-range="ALL">全部</button>
+                  </div>
+                </div>
+              </div>
+              <div class="equity-chart" id="equityChartWrap" aria-label="资金曲线与回撤图">
+                <div class="chart-hud" id="equityHud">
+                  <span class="chart-hud-item">日期 <b class="num" id="hudDate">10-24 20:00</b></span>
+                  <span class="chart-hud-item">权益 <b class="num positive" id="hudEquity">12,480.52 USDT</b></span>
+                  <span class="chart-hud-item">区间收益 <b class="num positive" id="hudReturn">+14.82%</b></span>
+                  <span class="chart-hud-item">当时回撤 <b class="num negative" id="hudDd">-1.42%</b></span>
+                </div>
+                <svg id="equitySvg" viewBox="0 0 900 260" preserveAspectRatio="none" role="img">
+                  <defs>
+                    <linearGradient id="equityFill" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.09" />
+                      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.0" />
+                    </linearGradient>
+                    <linearGradient id="drawdownFill" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0" stop-color="#FF4D5E" stop-opacity="0.16" />
+                      <stop offset="1" stop-color="#FF4D5E" stop-opacity="0.02" />
+                    </linearGradient>
+                  </defs>
+                  <g class="chart-grid">
+                    <line x1="0" y1="45" x2="900" y2="45" />
+                    <line x1="0" y1="100" x2="900" y2="100" />
+                    <line x1="0" y1="155" x2="900" y2="155" />
+                    <line x1="0" y1="210" x2="900" y2="210" />
+                  </g>
+                  <path id="drawdownAreaPath" class="drawdown-area" d="" />
+                  <path id="drawdownLinePath" class="drawdown-line" d="" />
+                  <path id="benchLinePath" class="bench-line" d="" />
+                  <path id="equityAreaPath" class="equity-area" d="" />
+                  <path id="equityLinePath" class="equity-line" d="" />
+                  <line id="equityHoverLine" x1="-10" y1="0" x2="-10" y2="260" stroke="rgba(255,255,255,0.28)" stroke-dasharray="3 3" />
+                  <circle id="equityActivePoint" cx="900" cy="42" r="4" class="chart-point" />
+                </svg>
+                <div class="chart-axis" id="equityAxis">
+                  <span>10-18</span><span>10-20</span><span>10-22</span><span>10-24</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel exposure-panel">
+              <div class="panel-heading">
+                <div class="panel-heading-left">
+                  <h2>风险敞口与组合杠杆</h2>
+                  <span class="panel-subtitle">Portfolio Exposure</span>
+                </div>
+                <button class="ghost-button" data-route="risk">风控规则 →</button>
+              </div>
+              <div class="exposure-content">
+                <div class="exposure-dial" id="exposureDial">
+                  <div class="dial-center">
+                    <strong class="num" id="dialLeverage">1.42x</strong>
+                    <span>名义杠杆 / 3.0x</span>
+                  </div>
+                </div>
+                <div class="exposure-list">
+                  <div class="exposure-row">
+                    <span><i class="legend up"></i>顺势多头 (S1)</span>
+                    <strong class="num">42%</strong>
+                    <small class="num">5,241 USDT</small>
+                  </div>
+                  <div class="exposure-bar"><span class="up-fill" style="width: 42%"></span></div>
+
+                  <div class="exposure-row">
+                    <span><i class="legend down"></i>逆势空头 (S3)</span>
+                    <strong class="num">19%</strong>
+                    <small class="num">2,371 USDT</small>
+                  </div>
+                  <div class="exposure-bar"><span class="down-fill" style="width: 19%"></span></div>
+
+                  <div class="exposure-row">
+                    <span><i class="legend neutral"></i>闲置保证金缓冲</span>
+                    <strong class="num">39%</strong>
+                    <small class="num">4,868 USDT</small>
+                  </div>
+                  <div class="exposure-bar"><span class="neutral-fill" style="width: 39%"></span></div>
+                </div>
+              </div>
+              <div class="risk-note">
+                <span><i class="status-dot live"></i>BTC 1D 站上 SMA200 (+4.2%)</span>
+                <span>大盘系数 <b class="num">1.0×</b> · 周末 <b class="num">0.7×</b></span>
+              </div>
+            </section>
+          </div>
+
+          <!-- Lower Grid: Latest Screener Top Candidates + Live Signal Feed -->
+          <div class="lower-grid">
+            <section class="panel screener-preview">
+              <div class="panel-heading">
+                <div class="panel-heading-left">
+                  <h2>最新 4H 选币候选池</h2>
+                  <span class="panel-subtitle">扫描耗时 38.4s · 覆盖 165 个 USDT 永续交易对</span>
+                </div>
+                <button class="ghost-button" data-route="screener">完整矩阵 →</button>
+              </div>
+              <div class="pool-tabs" id="overviewPoolTabs">
+                <button class="pool-tab is-active" data-ov-pool="ALL">全部候选 <b>12</b></button>
+                <button class="pool-tab" data-ov-pool="A">A 顺势做多 <b>4</b></button>
+                <button class="pool-tab" data-ov-pool="B">B 顺势做空 <b>2</b></button>
+                <button class="pool-tab" data-ov-pool="C">C 震荡低吸 <b>3</b></button>
+                <button class="pool-tab" data-ov-pool="D">D 震荡高抛 <b>1</b></button>
+                <button class="pool-tab" data-ov-pool="E">E 逆势 <b>2</b></button>
+              </div>
+              <div class="table-wrap" tabindex="0" role="region" aria-label="最新选币候选池预览">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>币种</th>
+                      <th>候选池</th>
+                      <th class="align-right">最新价</th>
+                      <th class="align-right">24h 涨跌</th>
+                      <th>日线趋势</th>
+                      <th>4H 背离信号</th>
+                      <th class="align-right">综合评分</th>
+                      <th class="align-right">近24h走势</th>
+                    </tr>
+                  </thead>
+                  <tbody id="overviewScreenerBody"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel signal-panel spotlight-surface">
+              <div class="panel-heading">
+                <div class="panel-heading-left">
+                  <h2>实时信号与 AI 陪审流</h2>
+                  <span class="panel-subtitle">点击任意信号直达 K 线工作台</span>
+                </div>
+                <span class="tag tag-up"><i class="status-dot live"></i>实时推送</span>
+              </div>
+              <div class="signal-list" id="overviewSignalList"></div>
+              <div class="briefing-box">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span class="box-label">AGENT 3 · 焦点信号一句话陪审简报</span>
+                  <span class="tag tag-up num">SOL · 82分</span>
+                </div>
+                <p id="overviewAiBriefing">
+                  SOL 日线稳居 SMA200 上方（偏离 +8.1%），4H 走出标准两段绿柱底背离，G2 柱面积缩减 54% 且伴随 0.62× 缩量衰竭。当前 1H 已突破 P2 右侧高点 181.80，风险收益比 2.1R，建议按 S1 标准仓位执行。
+                </p>
+              </div>
+            </section>
+          </div>
+
+          <!-- Active Positions Table -->
+          <section class="panel positions-panel">
+            <div class="panel-heading">
+              <div class="panel-heading-left">
+                <h2>当前在途持仓</h2>
+                <span class="panel-subtitle">所有仓位已挂载交易所端 reduceOnly 止损保护单</span>
+              </div>
+              <button class="ghost-button" data-route="positions">持仓与委托管理 →</button>
+            </div>
+            <div class="table-wrap" tabindex="0" role="region" aria-label="当前在途持仓">
+              <table class="data-table positions-table">
+                <thead>
+                  <tr>
+                    <th>交易对</th>
+                    <th>方向 / 杠杆</th>
+                    <th class="align-right">持仓张数</th>
+                    <th class="align-right">开仓均价</th>
+                    <th class="align-right">最新标记价</th>
+                    <th class="align-right">预估强平价</th>
+                    <th class="align-right">未实现盈亏 (USDT)</th>
+                    <th class="align-right">保护止损 / 止盈</th>
+                    <th>所属策略 / 保护状态</th>
+                    <th class="align-right">持仓时长</th>
+                    <th class="align-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="overviewPositionsBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <!-- ==================== VIEW 2: SCREENER ==================== -->
+        <section class="view" data-view-panel="screener">
+          <div class="view-toolbar">
+            <div class="view-title-group">
+              <h1>全市场选币器</h1>
+              <span class="toolbar-divider"></span>
+              <span class="toolbar-meta">初筛条件 <b>24h成交额 ≥ 20M USDT · 上线 ≥ 200D</b></span>
+              <span class="toolbar-meta">键盘操作 <b>J/K 移动 · Enter 打开工作台</b></span>
+            </div>
+            <div class="heading-actions">
+              <div class="segmented" id="screenerMaSwitch">
+                <button class="segment is-active" data-ma="SMA">主基准 SMA200</button>
+                <button class="segment" data-ma="EMA">对照 EMA200</button>
+              </div>
+              <button class="secondary-button" id="resetFilterBtn">重置筛选</button>
+              <button class="primary-button" data-action="scan">立即扫描</button>
+            </div>
+          </div>
+
+          <div class="screener-layout">
+            <aside class="panel filter-panel">
+              <div class="panel-heading">
+                <div class="panel-heading-left">
+                  <h2>多维条件过滤</h2>
+                </div>
+                <span class="panel-subtitle num" id="filterMatchCount">命中 12</span>
+              </div>
+
+              <div class="filter-group">
+                <label>关键词搜索</label>
+                <input class="search-input" id="screenerSearchInput" placeholder="输入币种如 SOL, BTC..." />
+              </div>
+
+              <div class="filter-group">
+                <label>日线趋势状态 (MA200)</label>
+                <div class="check-grid" id="filterTrendGroup">
+                  <button class="filter-chip is-checked" data-trend="上涨">✓ 上涨</button>
+                  <button class="filter-chip is-checked" data-trend="下跌">✓ 下跌</button>
+                  <button class="filter-chip is-checked" data-trend="震荡">✓ 震荡</button>
+                </div>
+              </div>
+
+              <div class="filter-group">
+                <label>4H 背离结构</label>
+                <div class="check-grid" id="filterDivGroup">
+                  <button class="filter-chip is-checked" data-div="底背离">✓ 底背离</button>
+                  <button class="filter-chip is-checked" data-div="顶背离">✓ 顶背离</button>
+                  <button class="filter-chip is-checked" data-div="无">✓ 无背离</button>
+                </div>
+              </div>
+
+              <div class="filter-group">
+                <label><span>综合评分阈值</span><b class="num" id="scoreRangeLabel">≥ 60</b></label>
+                <input class="range-input" id="scoreRangeInput" type="range" min="40" max="90" step="5" value="60" />
+              </div>
+
+              <div class="filter-group">
+                <label>专项特征过滤</label>
+                <div class="check-grid">
+                  <button class="filter-chip" id="filterDiffOnly">▲ 仅看 SMA/EMA 分歧</button>
+                  <button class="filter-chip" id="filterOrder2Only">★ 仅看二次背离 (+15分)</button>
+                  <button class="filter-chip" id="filterEarlyOnly">◔ 包含早期未收盘提示</button>
+                </div>
+              </div>
+            </aside>
+
+            <section class="panel screener-table-panel">
+              <div class="pool-tabs" id="screenerPoolTabs">
+                <button class="pool-tab is-active" data-pool="ALL">全部池 <b id="countPoolALL">12</b></button>
+                <button class="pool-tab" data-pool="A">A 顺势做多 <b id="countPoolA">4</b></button>
+                <button class="pool-tab" data-pool="B">B 顺势做空 <b id="countPoolB">2</b></button>
+                <button class="pool-tab" data-pool="C">C 震荡低吸 <b id="countPoolC">3</b></button>
+                <button class="pool-tab" data-pool="D">D 震荡高抛 <b id="countPoolD">1</b></button>
+                <button class="pool-tab" data-pool="E">E 逆势高风控 <b id="countPoolE">2</b></button>
+                <button class="pool-tab" data-pool="F">F 纯趋势观察 <b id="countPoolF">4</b></button>
+              </div>
+
+              <div class="table-wrap screener-scroll" tabindex="0" role="region" aria-label="选币器数据矩阵">
+                <table class="data-table" id="screenerTable">
+                  <thead>
+                    <tr>
+                      <th class="sortable" data-sort="symbol">币种 ↕</th>
+                      <th>候选池</th>
+                      <th class="align-right sortable" data-sort="price">最新价 ↕</th>
+                      <th class="align-right sortable" data-sort="change">24h ↕</th>
+                      <th class="align-right sortable" data-sort="volume">24h成交额 ↕</th>
+                      <th>趋势 SMA</th>
+                      <th>趋势 EMA</th>
+                      <th class="align-right sortable" data-sort="dist">MA偏离度 ↕</th>
+                      <th class="align-right sortable" data-sort="slope">MA斜率 ↕</th>
+                      <th>4H 背离类型</th>
+                      <th class="align-center" title="柱峰值高度背离">柱高</th>
+                      <th class="align-center" title="两段柱子面积缩减">面积</th>
+                      <th class="align-center" title="G2段成交量萎缩配合">缩量</th>
+                      <th class="align-right sortable is-sorted" data-sort="score">评分 ↓</th>
+                      <th class="align-right">确认时间</th>
+                    </tr>
+                  </thead>
+                  <tbody id="screenerRows"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 3: WORKSPACE (CORE) ==================== -->
+        <section class="view" data-view-panel="workspace">
+          <div class="workspace-layout" id="workspaceLayout">
+            <!-- Left Candidate Switcher -->
+            <aside class="panel candidate-panel">
+              <div class="candidate-tabs" id="wsPoolTabs">
+                <button class="is-active" data-ws-pool="ALL">全部</button>
+                <button data-ws-pool="A">A多</button>
+                <button data-ws-pool="B">B空</button>
+                <button data-ws-pool="C">C吸</button>
+                <button data-ws-pool="E">E逆</button>
+              </div>
+              <div class="search-box">
+                <input class="search-input" id="wsSearchInput" placeholder="筛选候选币种 (J/K 切换)…" />
+              </div>
+              <div class="candidate-list" id="wsCandidateList"></div>
+            </aside>
+
+            <!-- Center Chart + Bottom Multi-Tab Dock -->
+            <div class="workbench-center">
+              <section class="panel workbench-chart">
+                <div class="chart-toolbar">
+                  <div class="instrument-header">
+                    <div class="instrument-symbol">
+                      <b id="wsSymbolTitle">SOL-USDT</b>
+                      <span class="perp-badge">SWAP 永续</span>
+                    </div>
+                    <strong class="price-lg num" id="wsLivePrice">182.35</strong>
+                    <span class="tag tag-up num" id="wsLiveChange">+3.20%</span>
+                    <div class="instrument-stats">
+                      <span>24h高<b class="num" id="wsHigh">185.40</b></span>
+                      <span>24h低<b class="num" id="wsLow">176.02</b></span>
+                      <span>24h额<b class="num" id="wsVol">1.24B</b></span>
+                      <span>费率<b class="num positive" id="wsFunding">+0.0100%</b></span>
+                    </div>
+                  </div>
+
+                  <div class="toolbar-controls">
+                    <div class="segmented" id="wsTimeframeTabs">
+                      <button class="timeframe" data-tf="15m">15m</button>
+                      <button class="timeframe" data-tf="1H">1H</button>
+                      <button class="timeframe is-active" data-tf="4H">4H</button>
+                      <button class="timeframe" data-tf="1D">1D</button>
+                    </div>
+                    <span class="toolbar-divider"></span>
+                    <button class="filter-chip is-checked" id="toggleSmaBtn">✓ SMA200</button>
+                    <button class="filter-chip is-checked" id="toggleEmaBtn">✓ EMA200</button>
+                    <button class="filter-chip is-checked" id="togglePlanBtn">✓ 计划线</button>
+                    <button class="secondary-button" id="annotateModeBtn" title="快捷键 M 进入交互式金标样本点选">✎ 标注样本</button>
+                    <button class="secondary-button" id="fullscreenChartBtn" title="快捷键 F 切换全屏">⤢ 全屏</button>
+                  </div>
+                </div>
+
+                <!-- Annotation Guidance Bar -->
+                <div class="annotation-banner" id="annotationBanner">
+                  <span><b>[金标样本采集模式]</b> 请在下方 MACD 副图依次点击 <b>第 1 段柱子 (G1)</b> 与 <b>第 2 段柱子 (G2)</b>，系统将自动提取极值与面积比并写入 `golden_divergences.csv`</span>
+                  <span class="num" id="annotationStepText">当前进度：等待点选 G1 (0/2)</span>
+                </div>
+
+                <!-- Interactive K-Line + Volume + MACD Divergence SVG Canvas -->
+                <div class="market-chart-container" id="marketChartContainer">
+                  <div class="ohlc-legend" id="ohlcLegend">
+                    <span id="legendTime" class="num">10-24 16:00</span>
+                    <span>开 <b class="num" id="legendO">180.40</b></span>
+                    <span>高 <b class="num" id="legendH">183.10</b></span>
+                    <span>低 <b class="num" id="legendL">179.85</b></span>
+                    <span>收 <b class="num positive" id="legendC">182.35</b></span>
+                    <span>SMA200 <b class="num" id="legendSma">168.60</b></span>
+                    <span>EMA200 <b class="num" id="legendEma">170.12</b></span>
+                    <span>MACD柱 <b class="num positive" id="legendHist">-0.42</b></span>
+                  </div>
+                  <div class="market-chart stage-ma stage-bands stage-lines stage-labels" id="marketChart">
+                    <svg id="klineSvg" viewBox="0 0 920 490" preserveAspectRatio="none"></svg>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Bottom Workbench Dock -->
+              <section class="workbench-dock">
+                <div class="pool-tabs" id="wsDockTabs">
+                  <button class="pool-tab is-active" data-dock="positions">当前持仓 <b>3</b></button>
+                  <button class="pool-tab" data-dock="orders">当前委托 <b>2</b></button>
+                  <button class="pool-tab" data-dock="history">该币信号历史 <b>4</b></button>
+                  <button class="pool-tab" data-dock="golden">金标样本库 <b id="goldenCountBadge">5</b></button>
+                </div>
+                <div class="table-wrap" style="max-height: 155px" tabindex="0" role="region" aria-label="工作台底栏数据">
+                  <table class="data-table">
+                    <thead id="wsDockHead"></thead>
+                    <tbody id="wsDockBody"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+
+            <!-- Right Signal Detail & Two-Stage AI Progressive Review -->
+            <aside class="panel signal-detail">
+              <div class="detail-heading">
+                <div class="detail-heading-left">
+                  <div style="display:flex;gap:6px;align-items:center;">
+                    <span class="tag tag-up" id="detailTag">底背离 · A 顺势做多</span>
+                    <span class="tag tag-neutral num" id="detailOrderTag">二次背离 +15</span>
+                  </div>
+                  <h2 id="detailSubTitle">4H MACD 柱段确认信号</h2>
+                </div>
+                <strong class="score-big num" id="detailScore">82</strong>
+              </div>
+
+              <div class="feedback-row">
+                <button class="feedback-button" id="btnFeedbackUp">✓ 算对了 (校准+1)</button>
+                <button class="feedback-button" id="btnFeedbackDown">✗ 算错了 (记入负样本)</button>
+              </div>
+
+              <div class="detail-section" id="detailMathMetrics">
+                <div class="detail-row" data-hover-link="price">
+                  <span>价格极值对比 (含影线)</span>
+                  <strong class="num" id="metricPrice">176.02 &lt; 178.40 <b class="positive">✓</b></strong>
+                </div>
+                <div class="detail-row" data-hover-link="height">
+                  <span>MACD 柱峰值高度</span>
+                  <strong class="num" id="metricHeight">-1.82 → -0.94 <b class="positive">✓</b></strong>
+                </div>
+                <div class="detail-row" data-hover-link="area">
+                  <span>两段柱面积Σ|hist|</span>
+                  <strong class="num" id="metricArea">21.4 → 9.8 (-54%) <b class="positive">✓</b></strong>
+                </div>
+                <div class="detail-row" data-hover-link="volume">
+                  <span>G2 柱段成交量均值</span>
+                  <strong class="num" id="metricVol">缩量 0.62× <b class="positive">✓</b></strong>
+                </div>
+                <div class="detail-row">
+                  <span>右侧确认收盘时刻</span>
+                  <strong class="num" id="metricTime">10-24 16:00 (UTC+8)</strong>
+                </div>
+              </div>
+
+              <!-- Stage 2 Progressive AI Review Box -->
+              <div class="ai-review" id="aiReviewBox">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span class="box-label">AI 四 Agent 联合二审与避雷</span>
+                  <span class="muted-text num" id="aiLatencyTag">缓存命中 · 18ms</span>
+                </div>
+                <div id="aiSkeleton" style="display:none;">
+                  <div class="skeleton-line"></div>
+                  <div class="skeleton-line short"></div>
+                </div>
+                <div id="aiContent">
+                  <div class="ai-status">
+                    <i class="status-dot live" id="aiStatusDot"></i>
+                    <b id="aiHeadline">形态干净 · 消息面安全放行</b>
+                    <span class="positive num" id="aiScoreMod">+8 修正分</span>
+                  </div>
+                  <ul class="ai-bullets" id="aiBullets">
+                    <li>视觉二审：G2 绿柱快速收敛，针尖精准回踩前低支撑区。</li>
+                    <li>宏观避雷：近 24h 无解锁或监管利空，资金费率中性偏多。</li>
+                    <li>风控提示：BTC 处于 4H 观察期，周末系数 0.7× 已自动折算。</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="strategy-box">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span class="box-label" id="strategyBoxTitle">策略建议 · S1 顺势回调 (小资金档)</span>
+                  <span class="tag tag-neutral num">风险 1.5%</span>
+                </div>
+                <div class="strategy-grid">
+                  <span>触发入场价</span>
+                  <strong class="num" id="planEntry">≥ 183.20 (1H突破)</strong>
+                  <span>保护止损价</span>
+                  <strong class="num" id="planStop">174.80 <em class="negative">(-4.58%)</em></strong>
+                  <span>分批止盈目标</span>
+                  <strong class="num" id="planTp">1.5R (195.8) / 2.0R (200.0)</strong>
+                  <span>建议开仓张数</span>
+                  <strong class="num" id="planSize">1.80 张 (逐仓 3x)</strong>
+                </div>
+              </div>
+
+              <div class="order-action-group">
+                <button class="trade-button up-button" id="wsTradeBtn">
+                  <span id="wsTradeBtnText">开多 SOL-USDT</span>
+                  <small id="wsTradeModeLabel">· 模拟盘全自动</small>
+                </button>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 4: POSITIONS & CONFIRM ==================== -->
+        <section class="view" data-view-panel="positions">
+          <div class="view-toolbar">
+            <div class="view-title-group">
+              <h1>持仓管理与实盘半自动确认</h1>
+              <span class="toolbar-divider"></span>
+              <span class="toolbar-meta">对账引擎 <b>每 5 分钟自动比对 OKX 账本 · 差异 0</b></span>
+            </div>
+            <div class="heading-actions">
+              <button class="secondary-button" id="reconcileNowBtn">立即与交易所对账</button>
+              <button class="secondary-button" id="exportCsvBtn">导出成交 CSV</button>
+            </div>
+          </div>
+
+          <!-- Semi-Automatic Live Confirm Queue (§17.6.5) -->
+          <div class="confirm-strip" id="confirmQueueStrip"></div>
+
+          <!-- Multi-Tab Portfolio Panel -->
+          <div class="panel tabbed-panel">
+            <div class="large-tabs" id="portfolioTabs">
+              <button class="is-active" data-ptab="positions">在途持仓 <b id="ptabPosCount">3</b></button>
+              <button data-ptab="openOrders">当前委托 <b id="ptabOrdCount">2</b></button>
+              <button data-ptab="algoOrders">止盈止损保护单 <b>6</b></button>
+              <button data-ptab="fills">历史成交明细 <b>12</b></button>
+              <button data-ptab="ledger">资金与费率流水 <b>8</b></button>
+            </div>
+            <div class="table-wrap" tabindex="0" role="region" aria-label="持仓与订单列表">
+              <table class="data-table positions-table">
+                <thead id="portfolioTableHead"></thead>
+                <tbody id="portfolioTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 5: STRATEGIES & AI EVOLUTION ==================== -->
+        <section class="view" data-view-panel="strategies">
+          <div class="view-toolbar">
+            <div class="view-title-group">
+              <h1>可插拔策略矩阵与 AI 参数进化</h1>
+              <span class="toolbar-divider"></span>
+              <span class="toolbar-meta">安全边界 <b>AI 仅具建议权与风控否决权，改参必须经样本外回测 + 人工批准</b></span>
+            </div>
+            <div class="heading-actions">
+              <span class="toolbar-meta num">下次 Agent 4 周度复盘：周日 20:00</span>
+              <button class="primary-button" id="runAiProposalBtn">运行 AI 错单归因与回测提案</button>
+            </div>
+          </div>
+
+          <!-- Agent 4 Proposal Approval Card (§17.6.6) -->
+          <section class="panel proposal-card spotlight-surface" id="aiProposalCard">
+            <div class="proposal-copy">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span class="tag tag-up" id="proposalStatusBadge">PASSED_OUT_OF_SAMPLE · Agent 4 提案 #2026-W43</span>
+                <span class="muted-text num">样本外 60 天验证通过</span>
+              </div>
+              <h2>收紧 G2 柱段缩量比阈值并微调面积比，过滤震荡尾端假背离</h2>
+              <p>
+                归因诊断：过去 30 天共出现 6 笔止损假背离，其中 5 笔发生在 G2/G1 成交量比值介于 `0.74 ~ 0.80` 的弱缩量区间。将 `volume_ratio` 从 `0.80` 收紧至 `0.72` 后，样本外最大回撤降低 1.8%，金标样本召回率保持 86.5%。
+              </p>
+              <div class="diff-row">
+                <span class="tag tag-neutral num">divergence.volume_ratio</span>
+                <strong class="num negative">0.80</strong>
+                <span>→</span>
+                <strong class="num positive">0.72</strong>
+                <span class="toolbar-divider"></span>
+                <span class="tag tag-neutral num">divergence.area_ratio</span>
+                <strong class="num negative">0.70</strong>
+                <span>→</span>
+                <strong class="num positive">0.66</strong>
+              </div>
+            </div>
+
+            <div class="proposal-chart">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span class="box-label">60D WALK-FORWARD 样本外净值对比</span>
+                <span class="muted-text">实线: 新提案 · 虚线: 现行参数</span>
+              </div>
+              <svg viewBox="0 0 420 96" preserveAspectRatio="none">
+                <path class="proposal-old" d="M0,78 C50,68 80,82 120,62 S190,66 220,46 S290,56 330,36 S380,40 420,26" />
+                <path class="proposal-new" d="M0,78 C50,64 80,70 120,50 S190,48 220,32 S290,36 330,20 S380,22 420,10" />
+              </svg>
+              <div class="proposal-metrics">
+                <span>最大回撤 <b class="positive">-1.8%</b></span>
+                <span>夏普比率 <b class="positive">+14.2%</b></span>
+                <span>金标召回 <b class="positive">86.5%</b></span>
+              </div>
+            </div>
+
+            <div class="proposal-actions">
+              <button class="primary-button" id="approveProposalBtn">批准并应用</button>
+              <button class="secondary-button" id="rejectProposalBtn">驳回提案</button>
+              <button class="ghost-button" id="rollbackProposalBtn">回滚上一版本</button>
+            </div>
+          </section>
+
+          <!-- Registered Strategies List -->
+          <section class="panel strategy-list">
+            <div class="panel-heading">
+              <div class="panel-heading-left">
+                <h2>已注册策略模块 (`strategies/`)</h2>
+                <span class="panel-subtitle">所有参数变更将自动记录快照并写入 `audit_logs`</span>
+              </div>
+            </div>
+            <div id="strategyRowsContainer"></div>
+          </section>
+        </section>
+
+        <!-- ==================== VIEW 6: BACKTEST LAB ==================== -->
+        <section class="view" data-view-panel="backtest">
+          <div class="view-toolbar">
+            <div class="view-title-group">
+              <h1>事件驱动回测实验室</h1>
+              <span class="toolbar-divider"></span>
+              <span class="toolbar-meta">信号唯一化 <b>100% 调用 `core/` 实盘同源纯函数 · 同根K线止盈止损按止损保守撮合</b></span>
+            </div>
+            <div class="heading-actions">
+              <span class="toolbar-meta num" id="btStatusMeta">最近任务：#BT-204 已完成 (耗时 4.2s)</span>
+            </div>
+          </div>
+
+          <div class="backtest-layout">
+            <aside class="panel">
+              <div class="panel-heading">
+                <h2>新建回测任务</h2>
+              </div>
+              <div class="backtest-form">
+                <div class="form-field">
+                  <label>回测策略组合</label>
+                  <select class="form-select" id="btStrategySelect">
+                    <option value="ALL">S1 + S2 组合 (标准推荐)</option>
+                    <option value="S1">仅 S1 顺势回调背离</option>
+                    <option value="S2">仅 S2 震荡区间反转</option>
+                    <option value="S3">仅 S3 逆势背离 (高风险对照)</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label>趋势均线基准对比 (T5.4)</label>
+                  <select class="form-select" id="btMaSelect">
+                    <option value="COMPARE">SMA200 vs EMA200 双轨同屏对比</option>
+                    <option value="SMA">仅 SMA200 (当前主用)</option>
+                    <option value="EMA">仅 EMA200</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label>历史数据区间 (含 Binance 归档)</label>
+                  <select class="form-select" id="btPeriodSelect">
+                    <option value="2024-2026">2024-01 至 2026-10 (近3年主周期)</option>
+                    <option value="2019-2026">2019-01 至 2026-10 (完整牛熊压力测试)</option>
+                    <option value="90D">最近 90 天 (Walk-Forward 测试集)</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label>双边成本模型 (Maker / Taker / 滑点)</label>
+                  <input class="form-input num" value="0.02% / 0.05% / 0.05% + 资金费率" readonly />
+                </div>
+                <button class="primary-button" id="runBacktestBtn" style="width:100%;height:34px;">启动逐 K 线回测</button>
+              </div>
+            </aside>
+
+            <div style="display:flex;flex-direction:column;gap:var(--gap-panel);min-width:0;">
+              <!-- Backtest KPI Summary -->
+              <div class="kpi-strip panel" id="btKpiStrip">
+                <div class="kpi-block">
+                  <span class="kpi-label">年化收益率 (CAGR)</span>
+                  <strong class="kpi-value num positive" id="btCagr">+48.6%</strong>
+                  <span class="kpi-footer">EMA对照 <b class="num">+43.1%</b></span>
+                </div>
+                <div class="kpi-block">
+                  <span class="kpi-label">最大历史回撤</span>
+                  <strong class="kpi-value num negative" id="btMaxDd">-8.42%</strong>
+                  <span class="kpi-footer">EMA对照 <b class="num">-10.15%</b></span>
+                </div>
+                <div class="kpi-block">
+                  <span class="kpi-label">夏普比率 (Sharpe)</span>
+                  <strong class="kpi-value num" id="btSharpe">2.34</strong>
+                  <span class="kpi-footer">索提诺 <b class="num">3.18</b></span>
+                </div>
+                <div class="kpi-block">
+                  <span class="kpi-label">样本外胜率</span>
+                  <strong class="kpi-value num positive" id="btWinRate">58.4%</strong>
+                  <span class="kpi-footer">共 <b class="num">342</b> 笔交易</span>
+                </div>
+                <div class="kpi-block">
+                  <span class="kpi-label">平均盈亏比</span>
+                  <strong class="kpi-value num" id="btProfitFactor">2.15</strong>
+                  <span class="kpi-footer">数学期望 <b class="num positive">+0.68R</b></span>
+                </div>
+                <div class="kpi-block">
+                  <span class="kpi-label">模拟盘信号一致率</span>
+                  <strong class="kpi-value num positive">98.2%</strong>
+                  <span class="kpi-footer">目标 KPI ≥ 95%</span>
+                </div>
+              </div>
+
+              <!-- Monthly Returns Heatmap (§17.6.7) -->
+              <section class="panel">
+                <div class="panel-heading">
+                  <div class="panel-heading-left">
+                    <h2>月度收益矩阵热力图 (%) · SMA200 基准</h2>
+                    <span class="panel-subtitle">已扣除手续费、滑点与永续资金费率（注：历史回测存在已下架币种幸存者偏差，仅供参考）</span>
+                  </div>
+                </div>
+                <div class="heatmap-grid" id="btHeatmapGrid"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW 7: RISK & LIVE LOGS ==================== -->
+        <section class="view" data-view-panel="risk">
+          <div class="view-toolbar">
+            <div class="view-title-group">
+              <h1>多级风控矩阵与实时系统日志</h1>
+              <span class="toolbar-divider"></span>
+              <span class="toolbar-meta">隔离模式 <b>OKX 独立子账户 · 逐仓 (Isolated)</b></span>
+              <span class="toolbar-meta">钝化冷却池 <b>PEPE-USDT (剩余 31h)</b></span>
+            </div>
+            <div class="heading-actions">
+              <button class="secondary-button" id="clearCooldownBtn">查看冷却池 (1)</button>
+            </div>
+          </div>
+
+          <div class="risk-grid">
+            <section class="panel risk-rules">
+              <div class="panel-heading">
+                <div class="panel-heading-left">
+                  <h2>实时风控门禁水位 (`small_account` 档)</h2>
+                  <span class="panel-subtitle">使用率 &lt;50% 正常 · 50~80% 预警 · &gt;80% 限制</span>
+                </div>
+                <span class="tag tag-up" id="riskViewStatusTag"><i class="status-dot live"></i>风控正常</span>
+              </div>
+              <div class="rule-row">
+                <div><b>单日最大亏损限额</b><span class="num">已用 0.00% / 阈值 3.00% (含浮亏)</span></div>
+                <div class="rule-meter"><i style="width: 4%"></i></div>
+                <strong class="num">0%</strong>
+              </div>
+              <div class="rule-row">
+                <div><b>单周最大亏损限额</b><span class="num">已用 0.84% / 阈值 6.00% (周一重置)</span></div>
+                <div class="rule-meter"><i style="width: 14%"></i></div>
+                <strong class="num">14%</strong>
+              </div>
+              <div class="rule-row">
+                <div><b>最高权益最大回撤熔断</b><span class="num">当前 -3.21% / 熔断平仓线 15.00%</span></div>
+                <div class="rule-meter"><i style="width: 21%"></i></div>
+                <strong class="num">21%</strong>
+              </div>
+              <div class="rule-row">
+                <div><b>组合总名义杠杆</b><span class="num">当前 1.42x / 上限 3.00x</span></div>
+                <div class="rule-meter warn"><i style="width: 47%"></i></div>
+                <strong class="num">47%</strong>
+              </div>
+              <div class="rule-row">
+                <div><b>同时持仓槽位上限</b><span class="num">当前 3 单 / 小资金档上限 3 单</span></div>
+                <div class="rule-meter danger"><i style="width: 100%"></i></div>
+                <strong class="num negative">100%</strong>
+              </div>
+              <div class="rule-row">
+                <div><b>BTC 大盘急跌/急涨监控</b><span class="num">1H 波动 -0.42% / 熔断阈值 ±4.00%</span></div>
+                <div class="rule-meter"><i style="width: 11%"></i></div>
+                <strong class="num">11%</strong>
+              </div>
+            </section>
+
+            <!-- Structured Live System Logs (§17.6.9) -->
+            <section class="panel">
+              <div class="panel-heading">
+                <div class="panel-heading-left">
+                  <h2>实时结构化系统日志 (`loguru` stream)</h2>
+                </div>
+                <div class="heading-actions">
+                  <div class="segmented" id="logLevelTabs">
+                    <button class="segment is-active" data-level="ALL">全部</button>
+                    <button class="segment" data-level="INFO">INFO</button>
+                    <button class="segment" data-level="WARN">WARN</button>
+                    <button class="segment" data-level="ERROR">ERROR</button>
+                  </div>
+                  <button class="filter-chip is-checked" id="logAutoScrollBtn">✓ 自动滚动</button>
+                </div>
+              </div>
+              <div class="log-stream" id="liveLogStream"></div>
+            </section>
+          </div>
+
+          <!-- Kill Switch Danger Zone (§17.6.8) -->
+          <section class="panel danger-zone">
+            <div>
+              <span class="box-label negative">EMERGENCY KILL SWITCH · 紧急制动开关</span>
+              <h2 style="margin-top:4px;color:var(--text-primary)">交易紧急熔断与全平停机</h2>
+              <p>“停止开新仓”将立即拦截所有新信号，但在途持仓的交易所端 `reduceOnly` 止损与止盈保护单继续生效；“全部平仓并停机”将撤销全部挂单并市价平掉所有仓位。</p>
+            </div>
+            <div class="danger-actions">
+              <button class="danger-button" id="haltNewOrdersBtn">停止开新仓</button>
+              <button class="danger-button strong" id="killSwitchModalBtn">全部平仓并停机…</button>
+            </div>
+          </section>
+        </section>
+      </main>
+
+      <!-- 26px Sticky Statusbar -->
+      <footer class="statusbar">
+        <span class="status-item"><i class="status-dot live"></i>OKX 行情与交易通道已连接</span>
+        <span class="status-item">上次 4H 扫描 <b class="num">20:00:03</b> · 倒计时 <b class="num" id="statusCountdown">03:54:12</b></span>
+        <span class="status-item">引擎单实例锁 <b class="num positive">LOCKED (Redis)</b> · 心跳 <b class="num" id="heartbeatSec">1s</b> 前</span>
+        <span class="status-item">风控状态 <b class="positive" id="footerRiskText">正常放行</b></span>
+        <span class="status-version num">DivergenceQuant v1.4.0 · M12 Exchange Edition</span>
+      </footer>
+
+      <!-- Mobile Bottom Navigation (<768px, §17.7) -->
+      <nav class="mobile-tabbar" aria-label="手机端底部导航">
+        <button class="is-active" data-view="overview"><span>总览</span></button>
+        <button data-view="screener"><span>选币</span></button>
+        <button data-view="workspace"><span>K线</span></button>
+        <button data-view="positions"><span>持仓/确认</span></button>
+        <button data-view="risk"><span>风控</span></button>
+      </nav>
+    </div>
+
+    <!-- Slide-Out Glass Drawer for Screener Candidate Details (§17.6.2) -->
+    <aside class="glass-drawer" id="screenerDrawer" aria-hidden="true">
+      <div class="drawer-header">
+        <div>
+          <strong style="color:var(--text-primary);font-size:14px" id="drawerSymbol">SOL-USDT 永续</strong>
+          <span class="tag tag-up" id="drawerPoolTag" style="margin-left:6px">A 顺势做多</span>
+        </div>
+        <button class="icon-button" id="closeDrawerBtn" aria-label="关闭详情抽屉">✕</button>
+      </div>
+      <div class="drawer-body" id="drawerBodyContent"></div>
+    </aside>
+
+    <!-- Native Modal Dialog: Command Palette (⌘K) with closedby="any" -->
+    <dialog class="glass-dialog" id="commandDialog" closedby="any" aria-label="全局命令与交易对搜索">
+      <div class="command-search">
+        <span>⌘K</span>
+        <input id="commandInput" placeholder="输入币种代码 (如 SOL, BTC)、视图名称或执行指令…" autocomplete="off" />
+      </div>
+      <div class="command-list" id="commandList"></div>
+    </dialog>
+
+    <!-- Native Modal Dialog: Action / Kill Switch / Annotation Confirmation -->
+    <dialog class="glass-dialog" id="actionDialog" closedby="any" aria-labelledby="actionDialogTitle">
+      <div class="dialog-header">
+        <h2 id="actionDialogTitle">操作确认</h2>
+        <button class="icon-button" id="closeActionDialogBtn" aria-label="关闭弹窗">✕</button>
+      </div>
+      <div class="dialog-body" id="actionDialogBody"></div>
+      <div class="dialog-footer" id="actionDialogFooter"></div>
+    </dialog>
+
+    <!-- Toast Stack Container -->
+    <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

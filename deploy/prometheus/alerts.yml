@@ -1,0 +1,75 @@
+# DivergenceQuant 核心监控告警规则
+# 严格按照计划书 §1.4 KPI、§10.4 监控告警和 §11 安全规范编写
+
+groups:
+  - name: dquant_system_alerts
+    rules:
+      # 1. 核心容器/实例宕机告警
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "服务实例离线: {{ $labels.instance }}"
+          description: "服务 {{ $labels.job }} ({{ $labels.instance }}) 已持续离线超过 1 分钟，请立即排查容器状态！"
+
+      # 2. 交易引擎心跳丢失（计划书 §10.3: 超过 3 分钟无心跳告警）
+      - alert: EngineHeartbeatMissing
+        expr: (time() - dquant_engine_last_heartbeat_timestamp_seconds) > 180
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "量化交易引擎心跳超时"
+          description: "dquant_engine 已超过 3 分钟没有写入心跳时间戳，可能进程被卡死、OOM 或死锁，请紧急介入！"
+
+      # 3. 行情数据延迟过大
+      - alert: MarketDataDelayHigh
+        expr: dquant_market_data_delay_seconds > 60
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "行情采集数据延迟高: {{ $value }}s"
+          description: "交易所行情接收延迟已连续 2 分钟超过 60 秒，可能导致 K 线收盘计算与信号偏移！"
+
+      # 4. 交易所与本地数据库对账差异（计划书 KPI K5: 订单状态对账差异 0）
+      - alert: ReconciliationDiscrepancy
+        expr: dquant_reconciliation_discrepancy_count > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "仓位/订单对账发现差异: {{ $value }} 笔"
+          description: "系统与 OKX 交易所对账时检测到持仓或挂单不一致，系统已自动暂停新开仓，需人工排查！"
+
+      # 5. 风控熔断器触发
+      - alert: RiskCircuitBreakerTriggered
+        expr: dquant_risk_circuit_breaker_active == 1
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "风控熔断机制已触发"
+          description: "检测到急跌急涨熔断、单日亏损限额或历史最高回撤达标，系统已紧急停止新开仓并触发保护！"
+
+      # 6. 服务器磁盘空间不足
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "磁盘可用空间不足 15%"
+          description: "宿主机根分区可用空间已低于 15%，请及时清理过期日志或扩容！"
+
+      # 7. 每日数据库备份失败或缺失（计划书 §10.4: 每日备份，RPO ≤ 24 小时）
+      - alert: BackupFailed
+        expr: (time() - dquant_backup_last_success_timestamp_seconds) > 86400 or dquant_backup_last_exit_code != 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "每日数据灾备任务失败"
+          description: "过去 24 小时未成功产生新的加密备份，或最新一次备份脚本返回错误码，RPO 目标面临违约风险！"

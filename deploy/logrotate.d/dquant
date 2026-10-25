@@ -1,0 +1,17 @@
+# DivergenceQuant 日志轮转规范
+# 对应计划书 §10.2: 单文件 100MB，保留 30 天，每日轮转，自动压缩
+
+/app/logs/*.log
+/var/log/dquant/*.log {
+    daily
+    rotate 30
+    size 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    create 0640 dquant dquant
+    dateext
+    dateformat -%Y%m%d-%s
+}

@@ -1,0 +1,226 @@
+# DivergenceQuant 生产环境 Docker Compose 编排
+# 对应计划书 §3.3、§10、§11 与任务 T10.1、T10.2
+# 绝不在配置文件中硬编码密码或 API Key，所有凭证由 .env 注入
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: dquant_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dquant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dquant_secure_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-dquant}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init-timescaledb.sql:/docker-entrypoint-initdb.d/01-init-timescaledb.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dquant} -d ${POSTGRES_DB:-dquant}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - dquant_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: dquant_redis
+    restart: always
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
+               redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes;
+             else
+               redis-server --appendonly yes;
+             fi'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -E 'PONG|NOAUTH' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dquant_net
+
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dquant:latest
+    container_name: dquant_collector
+    restart: always
+    command: ["python", "-m", "dquant.data.collector"]
+    env_file:
+      - .env
+    environment:
+      DQUANT_CONFIG_PATH: ${DQUANT_CONFIG_PATH:-config/config.yaml}
+      DQUANT_DATABASE_URL: ${DQUANT_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-dquant}:${POSTGRES_PASSWORD:-dquant_secure_pass}@postgres:5432/${POSTGRES_DB:-dquant}}
+      DQUANT_REDIS_URL: ${DQUANT_REDIS_URL:-redis://redis:6379/0}
+      PYTHONPATH: /app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+    networks:
+      - dquant_net
+
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dquant:latest
+    container_name: dquant_engine
+    restart: always
+    command: ["python", "-m", "dquant.scheduler.engine"]
+    env_file:
+      - .env
+    environment:
+      DQUANT_CONFIG_PATH: ${DQUANT_CONFIG_PATH:-config/config.yaml}
+      DQUANT_DATABASE_URL: ${DQUANT_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-dquant}:${POSTGRES_PASSWORD:-dquant_secure_pass}@postgres:5432/${POSTGRES_DB:-dquant}}
+      DQUANT_REDIS_URL: ${DQUANT_REDIS_URL:-redis://redis:6379/0}
+      PYTHONPATH: /app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+    networks:
+      - dquant_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dquant:latest
+    container_name: dquant_api
+    restart: always
+    command: ["uvicorn", "dquant.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file:
+      - .env
+    environment:
+      DQUANT_CONFIG_PATH: ${DQUANT_CONFIG_PATH:-config/config.yaml}
+      DQUANT_DATABASE_URL: ${DQUANT_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-dquant}:${POSTGRES_PASSWORD:-dquant_secure_pass}@postgres:5432/${POSTGRES_DB:-dquant}}
+      DQUANT_REDIS_URL: ${DQUANT_REDIS_URL:-redis://redis:6379/0}
+      PYTHONPATH: /app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/api/v1/health\", timeout=3)' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+    networks:
+      - dquant_net
+
+  web:
+    image: nginx:alpine
+    container_name: dquant_web
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./web/dist:/usr/share/nginx/html:ro
+      - ./deploy/nginx/ssl:/etc/nginx/ssl:ro
+      - ./deploy/nginx/certbot:/var/www/certbot:ro
+    depends_on:
+      - api
+    networks:
+      - dquant_net
+
+  prometheus:
+    image: prom/prometheus:v2.54.0
+    container_name: dquant_prometheus
+    restart: always
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - dquant_net
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: dquant_grafana
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-dquant_grafana_pass}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:%(http_port)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - dquant_net
+
+  backtest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dquant:latest
+    container_name: dquant_backtest
+    profiles:
+      - tools
+    restart: "no"
+    command: ["python", "-m", "dquant.backtest.run"]
+    env_file:
+      - .env
+    environment:
+      DQUANT_CONFIG_PATH: ${DQUANT_CONFIG_PATH:-config/config.backtest.yaml}
+      DQUANT_DATABASE_URL: ${DQUANT_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-dquant}:${POSTGRES_PASSWORD:-dquant_secure_pass}@postgres:5432/${POSTGRES_DB:-dquant}}
+      PYTHONPATH: /app/src
+    volumes:
+      - ./config:/app/config:ro
+      - ./reports:/app/reports
+    networks:
+      - dquant_net
+
+networks:
+  dquant_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

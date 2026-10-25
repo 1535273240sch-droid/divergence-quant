@@ -1,0 +1,52 @@
+exchange:
+  name: okx
+  mode: demo
+  inst_type: SWAP
+  position_mode: long_short_mode
+  margin_mode: isolated
+  sub_account_only: true
+
+timeframes:
+  regime: 1D
+  divergence: 4H
+  trigger: 1H
+  daily_close_tz: Asia/Shanghai
+
+universe:
+  quote: USDT
+  min_quote_volume_24h: 20000000
+  min_history_bars: 200
+  top_n_by_volume: 150
+  whitelist:
+    - BTC-USDT-SWAP
+    - ETH-USDT-SWAP
+  blacklist: []
+
+risk:
+  profile: small_account
+  risk_per_trade: 0.015
+  max_positions: 3
+  max_same_direction: 2
+  max_gross_leverage: 3
+  daily_loss_limit: 0.03
+  weekly_loss_limit: 0.06
+  max_drawdown_kill: 0.15
+
+execution:
+  demo_confirm_mode: auto
+  live_confirm_mode: manual
+  confirm_ttl_sec: 900
+
+ai:
+  enabled: true
+  timeout_sec: 12
+  daily_budget_usd: 1.0
+
+database:
+  url: postgresql+asyncpg://dquant@localhost:5432/dquant
+  echo: false
+  pool_pre_ping: true
+
+redis:
+  url: redis://localhost:6379/0
+  decode_responses: true
