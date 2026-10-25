@@ -72,6 +72,7 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
+      - ./data:/app/data
     networks:
       - dquant_net
 
@@ -99,6 +100,7 @@ services:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ./reports:/app/reports
+      - ./data:/app/data
     networks:
       - dquant_net
 
@@ -133,6 +135,7 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
+      - ./data:/app/data
     networks:
       - dquant_net
 

@@ -22,6 +22,7 @@ venv/
 logs/
 reports/generated/
 data/local/
+data/*.enc
 web-server.log
 
 # Frontend

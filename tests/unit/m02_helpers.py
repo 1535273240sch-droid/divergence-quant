@@ -78,6 +78,7 @@ class FakeOkxTransport(OkxTransport):
         self.credentials = credentials
         self.routes: dict[tuple[str, str], Any] = {}
         self.requests: list[tuple[str, str, Mapping[str, str] | None, bool]] = []
+        self.bodies: list[str] = []
 
     def route(self, method: str, path: str, value: Any) -> None:
         self.routes[(method, path)] = value
@@ -89,8 +90,10 @@ class FakeOkxTransport(OkxTransport):
         params: Mapping[str, str] | None,
         *,
         auth: bool,
+        body: str = "",
     ) -> Any:
         self.requests.append((method, path, dict(params or {}), auth))
+        self.bodies.append(body)
         if auth and self.credentials is None:
             raise ExchangeError(
                 "NO_CREDENTIALS", f"调用私有接口 {path} 需要先配置 OKX API 凭证", retriable=False

@@ -42,9 +42,15 @@ from dquant.contracts import (
     Instrument,
     InstrumentState,
     InstrumentType,
+    OrderAck,
+    OrderRequest,
+    OrderState,
     Position,
+    PositionSide,
+    SignalSide,
     Ticker,
 )
+from dquant.execution.ports import ProtectionRequest
 
 logger = logging.getLogger("dquant.adapters")
 
@@ -59,6 +65,12 @@ _FUNDING_RATE_PATH = "/api/v5/public/funding-rate"
 _BALANCE_PATH = "/api/v5/account/balance"
 _POSITIONS_PATH = "/api/v5/account/positions"
 _ORDERS_PENDING_PATH = "/api/v5/trade/orders-pending"
+_ORDER_PATH = "/api/v5/trade/order"
+_ORDER_DETAILS_PATH = "/api/v5/trade/order"
+_CANCEL_ORDER_PATH = "/api/v5/trade/cancel-order"
+_ORDER_ALGO_PATH = "/api/v5/trade/order-algo"
+_SET_LEVERAGE_PATH = "/api/v5/account/set-leverage"
+_SET_POSITION_MODE_PATH = "/api/v5/account/set-position-mode"
 
 MAX_CANDLES_LIMIT = 300
 MAX_HISTORY_CANDLES_LIMIT = 100
@@ -139,6 +151,7 @@ class OkxTransport(ABC):
         params: Mapping[str, str] | None,
         *,
         auth: bool,
+        body: str = "",
     ) -> Any:
         """发起一次请求。``params`` 的值必须是字符串。"""
 
@@ -170,8 +183,9 @@ class UrllibTransport(OkxTransport):
         params: Mapping[str, str] | None,
         *,
         auth: bool,
+        body: str = "",
     ) -> Any:
-        return await asyncio.to_thread(self._request_sync, method, path, params, auth)
+        return await asyncio.to_thread(self._request_sync, method, path, params, auth, body)
 
     def _request_sync(
         self,
@@ -179,13 +193,13 @@ class UrllibTransport(OkxTransport):
         path: str,
         params: Mapping[str, str] | None,
         auth: bool,
+        body: str = "",
     ) -> Any:
         query = ""
         if params:
             query = "?" + urllib.parse.urlencode(dict(sorted(params.items())))
         path_with_query = path + query
         url = self.base_url + path_with_query
-        body = ""
         credentials = self.credentials
         if auth and credentials is None:
             raise ExchangeError(
@@ -201,7 +215,8 @@ class UrllibTransport(OkxTransport):
             simulated_trading=self.simulated_trading,
             timestamp_ms=_utc_now_ms() + self.clock_offset_ms,
         )
-        request = urllib.request.Request(url, data=None, headers=headers, method=method.upper())
+        data = body.encode("utf-8") if body else None
+        request = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_sec) as response:
                 raw = response.read()
@@ -279,13 +294,24 @@ class OkxAdapter(ExchangeAdapter):
     # ---- 基础请求编排 ----
 
     async def _call(
-        self, method: str, path: str, params: Mapping[str, str] | None, auth: bool
+        self,
+        method: str,
+        path: str,
+        params: Mapping[str, str] | None,
+        auth: bool,
+        body: Mapping[str, Any] | None = None,
     ) -> Any:
         """发起一次限流 + 重试的请求，返回校验后的 ``data`` 字段。"""
 
         async def operation() -> Any:
             await self._limiter.acquire()
-            payload = await self._transport.request(method, path, params, auth=auth)
+            body_text = json.dumps(body, separators=(",", ":"), ensure_ascii=False) if body else ""
+            if body_text:
+                payload = await self._transport.request(
+                    method, path, params, auth=auth, body=body_text
+                )
+            else:
+                payload = await self._transport.request(method, path, params, auth=auth)
             return _validate_envelope(path, payload)["data"]
 
         return await self._retry.run(operation)
@@ -455,22 +481,165 @@ class OkxAdapter(ExchangeAdapter):
                 raise _wrap_parse_error("orders-pending", str(item.get("instId")), exc) from exc
         return orders
 
-    # ---- M09 执行域：M02 阶段显式未实现 ----
+    async def fetch_order_snapshot(
+        self, inst_id: str, *, ord_id: str | None = None, cl_ord_id: str | None = None
+    ) -> OpenOrderSnapshot | None:
+        """查询单个订单的当前/终态快照。"""
 
-    async def place_order(self, req: Any) -> Any:
-        raise NotImplementedError("place_order 属于 M09 执行域，M02 未实现")
+        if not ord_id and not cl_ord_id:
+            raise ValueError("ord_id or cl_ord_id is required")
+        params: dict[str, str] = {"instId": inst_id}
+        if ord_id:
+            params["ordId"] = ord_id
+        else:
+            params["clOrdId"] = cl_ord_id or ""
+        data = await self._call("GET", _ORDER_DETAILS_PATH, params, auth=True)
+        if not data:
+            return None
+        item = data[0]
+        try:
+            return OpenOrderSnapshot(
+                ord_id=str(item["ordId"]),
+                cl_ord_id=str(item.get("clOrdId")) if item.get("clOrdId") else None,
+                inst_id=str(item["instId"]),
+                side=str(item["side"]),
+                pos_side=str(item["posSide"]),
+                order_type=str(item["ordType"]),
+                price=Decimal(str(item["px"])) if item.get("px") else None,
+                size=Decimal(str(item["sz"])),
+                state=str(item["state"]),
+            )
+        except _PARSE_ERROR_TYPES as exc:
+            raise _wrap_parse_error("trade/order", inst_id, exc) from exc
+
+    # ---- M09 执行域 ----
+
+    async def place_order(self, req: OrderRequest) -> OrderAck:
+        """提交普通合约订单。
+
+        交易方向由公共契约的 signal side 转换为 OKX 的 buy/sell；双向持仓
+        必须同时提交 ``posSide``。止盈止损由 OMS 在成交回报后通过
+        ``place_protection_order`` 建立，避免未成交订单留下裸保护单。
+        """
+
+        side = _okx_order_side(req.side, req.reduce_only)
+        body: dict[str, Any] = {
+            "instId": req.inst_id,
+            "tdMode": "isolated",
+            "clOrdId": req.cl_ord_id,
+            "side": side,
+            "posSide": req.pos_side.value,
+            "ordType": req.order_type.value,
+            "sz": str(req.size),
+        }
+        if req.price is not None:
+            body["px"] = str(req.price)
+        if req.reduce_only:
+            body["reduceOnly"] = "true"
+        data = await self._call("POST", _ORDER_PATH, None, auth=True, body=body)
+        try:
+            item = data[0]
+            code = str(item.get("sCode", "0"))
+            message = str(item.get("sMsg", ""))
+            if code != "0":
+                return OrderAck(
+                    cl_ord_id=req.cl_ord_id,
+                    ord_id=str(item.get("ordId") or req.cl_ord_id),
+                    state=OrderState.REJECTED,
+                    accepted_ts_ms=_utc_now_ms(),
+                    message=message or code,
+                )
+            return OrderAck(
+                cl_ord_id=str(item.get("clOrdId") or req.cl_ord_id),
+                ord_id=str(item["ordId"]),
+                state=OrderState.SUBMITTED,
+                accepted_ts_ms=_utc_now_ms(),
+                message=message,
+            )
+        except _PARSE_ERROR_TYPES as exc:
+            raise _wrap_parse_error("trade/order", req.cl_ord_id, exc) from exc
 
     async def cancel_order(self, inst_id: str, cl_ord_id: str) -> None:
-        raise NotImplementedError("cancel_order 属于 M09 执行域，M02 未实现")
+        await self._call(
+            "POST",
+            _CANCEL_ORDER_PATH,
+            None,
+            auth=True,
+            body={"instId": inst_id, "clOrdId": cl_ord_id},
+        )
 
     async def set_leverage(self, inst_id: str, lever: int, mgn_mode: str) -> None:
-        raise NotImplementedError("set_leverage 属于 M09 执行域，M02 未实现")
+        await self._call(
+            "POST",
+            _SET_LEVERAGE_PATH,
+            None,
+            auth=True,
+            body={"instId": inst_id, "lever": str(lever), "mgnMode": mgn_mode},
+        )
+
+    async def set_position_mode(self, mode: str) -> None:
+        await self._call(
+            "POST", _SET_POSITION_MODE_PATH, None, auth=True, body={"posMode": mode}
+        )
+
+    async def place_protection_order(self, request: ProtectionRequest) -> str:
+        """为已成交仓位建立 reduce-only 条件止损和分批止盈。"""
+
+        side = "sell" if request.pos_side is PositionSide.LONG else "buy"
+        algo_ids: list[str] = []
+        common: dict[str, Any] = {
+            "instId": request.inst_id,
+            "tdMode": "isolated",
+            "side": side,
+            "posSide": request.pos_side.value,
+            "ordType": "conditional",
+            "sz": str(request.size),
+            "reduceOnly": "true",
+        }
+        stop = dict(common)
+        stop.update(
+            {
+                "slTriggerPx": str(request.stop_loss),
+                "slOrdPx": "-1",
+                "slTriggerPxType": "mark",
+            }
+        )
+        stop_data = await self._call("POST", _ORDER_ALGO_PATH, None, auth=True, body=stop)
+        algo_ids.extend(_algo_ids(stop_data))
+
+        for index, take_profit in enumerate(request.take_profits, start=1):
+            tp = dict(common)
+            tp.update(
+                {
+                    "tpTriggerPx": str(take_profit.price),
+                    "tpOrdPx": "-1",
+                    "tpTriggerPxType": "mark",
+                    "algoClOrdId": f"{request.source_cl_ord_id[:24]}TP{index}",
+                }
+            )
+            tp_data = await self._call("POST", _ORDER_ALGO_PATH, None, auth=True, body=tp)
+            algo_ids.extend(_algo_ids(tp_data))
+        if not algo_ids:
+            raise ExchangeError("PROTECTION_EMPTY", "OKX 未返回保护单 algoId", retriable=False)
+        return ",".join(algo_ids)
 
     async def subscribe_candles(self, inst_ids: list[str], bar: CandleBar, callback: Any) -> None:
         raise NotImplementedError("subscribe_candles 需要 WebSocket 通道，由 M09/M13 集成时实现")
 
     async def subscribe_orders(self, callback: Any) -> None:
         raise NotImplementedError("subscribe_orders 需要 WebSocket 通道，由 M09/M13 集成时实现")
+
+
+def _okx_order_side(side: SignalSide, reduce_only: bool) -> str:
+    if side is SignalSide.LONG:
+        return "sell" if reduce_only else "buy"
+    return "buy" if reduce_only else "sell"
+
+
+def _algo_ids(data: Any) -> list[str]:
+    if not isinstance(data, list):
+        return []
+    return [str(item["algoId"]) for item in data if isinstance(item, dict) and item.get("algoId")]
 
 
 def _validate_envelope(path: str, payload: Any) -> Any:

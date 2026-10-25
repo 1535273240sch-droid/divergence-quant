@@ -99,6 +99,13 @@ openssl rand -hex 16
 > [!IMPORTANT]
 > 初始部署时，实盘开关必须保持为：`LIVE_TRADING_CONFIRM=NO`。
 
+新增后端运行时配置：
+
+- `DQUANT_JWT_SECRET`：API JWT 和加密凭证存储的共享主密钥，必须是稳定随机值；不要让 API 和 engine 使用不同值。
+- `DQUANT_CREDENTIALS_FILE`：默认 `data/okx-credentials.enc`，API 通过连接测试保存的 OKX 凭证密文；不要提交到 Git。
+- `DQUANT_REQUIRE_PRIVATE_API=YES`：要求 engine 启动时必须能恢复 OKX 私有凭证，否则直接退出；首次只跑公开行情时保持 `NO`。
+- `data/` 已挂载到 API、engine、collector 容器，确保重启后能读取密文凭证。
+
 ---
 
 ## 5. SSL 证书与 Nginx 配置
@@ -133,6 +140,13 @@ docker compose up -d --build
 bash scripts/healthcheck.sh
 ```
 预期输出：所有 8 个核心容器运行正常、PostgreSQL 数据库就绪、Redis 响应正常、API 健康端点正常响应。
+
+部署后可先验证连接状态：
+
+```bash
+curl -sf http://127.0.0.1:8000/api/v1/health
+# 登录后再调用：GET /api/v1/exchange/status
+```
 
 ---
 

@@ -55,4 +55,4 @@ class OpenOrderSnapshot(AdapterModel):
     order_type: str = Field(min_length=1)
     price: Decimal | None = Field(default=None, gt=0)
     size: Decimal = Field(gt=0)
-    state: str = Field(pattern="^(live|partially_filled)$")
+    state: str = Field(pattern="^(live|partially_filled|filled|canceled|cancelled|rejected)$")

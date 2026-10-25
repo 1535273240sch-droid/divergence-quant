@@ -12,6 +12,7 @@ dependencies = [
     "alembic>=1.13,<2",
     "aiosqlite>=0.20,<1",
     "asyncpg>=0.29,<1",
+    "cryptography>=42,<49",
     "fastapi>=0.111,<1",
     "greenlet>=3,<4",
     "loguru>=0.7,<1",

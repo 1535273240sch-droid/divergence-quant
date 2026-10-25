@@ -22,8 +22,8 @@ def test_compose_entry_modules_importable() -> None:
 
 
 def test_api_main_exposes_uvicorn_app() -> None:
-    from dquant.api.main import app
     from dquant.api.app import app as orig
+    from dquant.api.main import app
 
     assert app is orig
 
@@ -36,19 +36,17 @@ def test_collector_has_cli_main() -> None:
 
 def test_engine_builds_order_request_with_okx_safe_cl_ord_id() -> None:
     """订单准备阶段必须重写 clOrdId (signal_id 含冒号且超 32 字符, OKX 会拒单)。"""
-    import dataclasses
     from decimal import Decimal
 
     from dquant.contracts import Instrument, Signal
     from dquant.contracts.types import (
-        CandleBar,
         InstrumentState,
         InstrumentType,
         OrderType,
         SignalAction,
         SignalSide,
     )
-    from dquant.execution.oms import ExecutionConfig, OMS
+    from dquant.execution.oms import OMS, ExecutionConfig
     from dquant.execution.state import build_client_order_id
     from dquant.risk.manager import RiskDecision
     from dquant.scheduler.engine import NullGateway
@@ -87,7 +85,9 @@ def test_engine_builds_order_request_with_okx_safe_cl_ord_id() -> None:
     )
     oms = OMS(NullGateway(), config=ExecutionConfig(mode="demo"))  # type: ignore[arg-type]
     order = oms.build_order_request(signal, decision, instrument)
-    fixed = order.model_copy(update={"cl_ord_id": build_client_order_id("S1", signal.created_ts_ms, 1)})
+    fixed = order.model_copy(
+        update={"cl_ord_id": build_client_order_id("S1", signal.created_ts_ms, 1)}
+    )
     assert len(fixed.cl_ord_id) <= 32
     assert ":" not in fixed.cl_ord_id
     assert fixed.cl_ord_id != signal.signal_id
@@ -96,9 +96,8 @@ def test_engine_builds_order_request_with_okx_safe_cl_ord_id() -> None:
 @pytest.mark.asyncio
 async def test_engine_full_chain_synthetic(tmp_path) -> None:  # noqa: ANN001
     """synthetic 数据一轮全链路: 采集→币池→趋势→背离→选币(持久化)→策略上下文。"""
-    from dquant.scheduler.engine import EngineOptions, TradingEngine
+    from dquant.scheduler.engine import EngineOptions, TradingEngine, _SessionFactoryShim
     from dquant.scheduler.persistence import ScreenerRunStore
-    from dquant.scheduler.engine import _SessionFactoryShim
 
     options = EngineOptions(
         source="synthetic",
@@ -152,6 +151,7 @@ def test_strategy_settings_section_parses() -> None:
 
 def test_strategy_settings_rejects_duplicates_and_empty() -> None:
     from pydantic import ValidationError
+
     from dquant.settings import AppSettings
 
     with pytest.raises(ValidationError):
@@ -209,7 +209,7 @@ class _StubStrategy:
         return list(self._signals)
 
 
-def _sig(sid: str, strategy: str, inst: str, action) -> Signal:  # noqa: ANN001
+def _sig(sid: str, strategy: str, inst: str, action):  # noqa: ANN001
     from decimal import Decimal
 
     from dquant.contracts import Signal
@@ -271,7 +271,10 @@ def test_select_signals_dedupes_same_signal_id() -> None:
 
     first = _StubStrategy("A", [_sig("a1", "A", "BTC-USDT-SWAP", SignalAction.OPEN)])
     # 同一策略在两个 context 上重复发同一 signal_id
-    result = select_signals([first], [SimpleNamespace(candidate=None), SimpleNamespace(candidate=None)])
+    result = select_signals(
+        [first],
+        [SimpleNamespace(candidate=None), SimpleNamespace(candidate=None)],
+    )
     assert [s.signal_id for s in result] == ["a1"]
 
 
@@ -282,7 +285,14 @@ def test_okx_request_headers_include_user_agent() -> None:
     """OKX CDN 拒绝 urllib 默认 UA (403), 请求头必须显式携带 User-Agent。"""
     from dquant.adapters.okx import build_request_headers
 
-    headers = build_request_headers(None, "GET", "/api/v5/public/time", "", simulated_trading=True, timestamp_ms=0)
+    headers = build_request_headers(
+        None,
+        "GET",
+        "/api/v5/public/time",
+        "",
+        simulated_trading=True,
+        timestamp_ms=0,
+    )
     assert "User-Agent" in headers and headers["User-Agent"]
     assert headers["x-simulated-trading"] == "1"
 

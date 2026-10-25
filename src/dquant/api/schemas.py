@@ -63,6 +63,27 @@ class UserInfo(BaseSchema):
     permissions: list[str] = Field(default_factory=lambda: ["admin"])
 
 
+class ExchangeConnectionTestRequest(BaseSchema):
+    """OKX 模拟盘连接测试请求；密钥只用于本次请求，不写入响应。"""
+
+    api_key: str = Field(min_length=1)
+    api_secret: str = Field(min_length=1)
+    passphrase: str = Field(min_length=1)
+
+
+class ExchangeConnectionStatus(BaseSchema):
+    """交易所连接状态摘要。"""
+
+    exchange: str = "okx"
+    mode: str = "demo"
+    public_api: bool
+    private_api: bool
+    time_offset_ms: int | None = None
+    api_key_hint: str | None = None
+    balance_usdt: Decimal | None = None
+    message: str
+
+
 # ---------------------------------------------------------------------------
 # 信号与确认下单
 # ---------------------------------------------------------------------------

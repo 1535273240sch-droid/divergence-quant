@@ -21,7 +21,12 @@ from dquant.contracts import (
     Instrument,
     InstrumentState,
     InstrumentType,
+    OrderRequest,
+    OrderState,
+    OrderType,
     Position,
+    PositionSide,
+    SignalSide,
     Ticker,
 )
 
@@ -424,22 +429,39 @@ def test_fetch_funding_rate_parses_fields() -> None:
     assert rate.next_funding_time_ms == 1729747200000
 
 
-# ---- 交易域方法显式未实现 ----
+# ---- 交易域请求 ----
 
 
-def test_trade_methods_are_not_implemented_in_m02() -> None:
-    transport = FakeOkxTransport()
+def test_trade_methods_submit_signed_json_requests() -> None:
+    transport = FakeOkxTransport(_TEST_CREDENTIALS)
+    transport.route(
+        "POST",
+        "/api/v5/trade/order",
+        {"code": "0", "data": [{"ordId": "o-1", "clOrdId": "cli-1"}]},
+    )
+    transport.route("POST", "/api/v5/trade/cancel-order", {"code": "0", "data": [{}]})
+    transport.route("POST", "/api/v5/account/set-leverage", {"code": "0", "data": [{}]})
+    transport.route("POST", "/api/v5/account/set-position-mode", {"code": "0", "data": [{}]})
     adapter = make_adapter(transport)
+    request = OrderRequest(
+        cl_ord_id="cli-1",
+        inst_id="BTC-USDT-SWAP",
+        side=SignalSide.LONG,
+        pos_side=PositionSide.LONG,
+        order_type=OrderType.MARKET,
+        size=Decimal("1"),
+        mode="demo",
+    )
 
-    for coro in (
-        adapter.place_order(None),  # type: ignore[arg-type]
-        adapter.cancel_order("BTC-USDT-SWAP", "cli-1"),
-        adapter.set_leverage("BTC-USDT-SWAP", 3, "isolated"),
-        adapter.subscribe_candles(["BTC-USDT-SWAP"], CandleBar.ONE_HOUR, None),  # type: ignore[arg-type]
-        adapter.subscribe_orders(None),  # type: ignore[arg-type]
-    ):
-        with pytest.raises(NotImplementedError):
-            run(coro)
+    ack = run(adapter.place_order(request))
+    assert ack.ord_id == "o-1"
+    assert ack.state is OrderState.SUBMITTED
+    assert '"instId":"BTC-USDT-SWAP"' in transport.bodies[0]
+    assert '"side":"buy"' in transport.bodies[0]
+    assert '"posSide":"long"' in transport.bodies[0]
+    run(adapter.cancel_order("BTC-USDT-SWAP", "cli-1"))
+    run(adapter.set_leverage("BTC-USDT-SWAP", 3, "isolated"))
+    run(adapter.set_position_mode("long_short_mode"))
 
 
 # ---- 签名与请求头 ----

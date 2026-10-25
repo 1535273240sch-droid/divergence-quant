@@ -30,28 +30,32 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+import dquant.strategies  # noqa: F401  导入即注册全部内置策略
 from dquant.adapters.base import ExchangeAdapter
-from dquant.contracts import Candle, Instrument, Signal, Ticker
+from dquant.contracts import Candle, Instrument, Ticker
 from dquant.contracts.types import CandleBar, InstrumentState, InstrumentType, SignalAction
 from dquant.core.divergence import detect_divergences
-from dquant.core.indicators import atr as atr_series, sma as sma_series
+from dquant.core.indicators import atr as atr_series
+from dquant.core.indicators import sma as sma_series
 from dquant.core.regime import InsufficientCandlesError, classify_regime
-from dquant.core.screener import ScreenerConfig, ScreenerInputs, derive_divergence_id, run_screener
+from dquant.core.screener import ScreenerConfig, ScreenerInputs, derive_divergence_id
 from dquant.core.universe import UniverseConfig, screen_universe
 from dquant.data.candles import utc_now_ms
 from dquant.data.collector import AsyncAdapterRunner, update_incremental
 from dquant.data.store import load_candles_between, upsert_candles
 from dquant.db.models import Base
-from dquant.execution.oms import ExecutionConfig, OMS
+from dquant.execution.okx_gateway import OkxGateway
+from dquant.execution.oms import OMS, ExecutionConfig
 from dquant.execution.ports import BalanceSnapshot, OrderRequest, ProtectionRequest
+from dquant.execution.reconcile import Reconciler
 from dquant.execution.state import build_client_order_id
 from dquant.risk.killswitch import KillSwitch
 from dquant.risk.manager import MarketRiskContext, RiskManager, RiskRequest
 from dquant.scheduler.persistence import ScreenerRunStore
 from dquant.scheduler.runner import ScreenerScheduler, bar_period_ms, last_closed_bar_ts
 from dquant.scheduler.service import ScreenerService
+from dquant.security import CredentialStore, CredentialStoreError
 from dquant.settings import AppSettings, load_settings
-import dquant.strategies  # noqa: F401  导入即注册全部内置策略
 from dquant.strategies import create_strategy, list_strategies
 from dquant.strategies.base import BaseStrategy, StrategyContext
 
@@ -89,14 +93,17 @@ def load_env_file(path: str | Path = ".env") -> dict[str, str]:
 
 
 def load_okx_credentials() -> OkxCredentials | None:  # noqa: F821
-    """从环境变量组装 OKX 模拟盘凭证; 三项不全则返回 None (公开行情无需凭证)。"""
+    """优先从环境变量读取，否则读取 API 写入的加密凭证文件。"""
     from dquant.adapters.okx import OkxCredentials
 
     api_key = os.environ.get(OKX_DEMO_KEY_ENV, "").strip()
     secret = os.environ.get(OKX_DEMO_SECRET_ENV, "").strip()
     passphrase = os.environ.get(OKX_DEMO_PASSPHRASE_ENV, "").strip()
     if not (api_key and secret and passphrase):
-        return None
+        try:
+            return CredentialStore().load()
+        except CredentialStoreError:
+            return None
     return OkxCredentials(api_key=api_key, secret=secret, passphrase=passphrase)
 
 SYNTH_UNIVERSE = (
@@ -146,7 +153,7 @@ class _SessionFactoryShim:
     def __init__(self, sync_factory: sessionmaker) -> None:
         self._factory = sync_factory
 
-    def __call__(self) -> "_SessionFactoryShim":
+    def __call__(self) -> _SessionFactoryShim:
         return self
 
     async def __aenter__(self) -> _AsyncSessionShim:
@@ -191,7 +198,9 @@ class NullGateway:
 # ---------------------------------------------------------------------------
 # 确定性合成行情 (无网络冒烟用)
 # ---------------------------------------------------------------------------
-def _synth_candles(inst_id: str, bar: CandleBar, count: int, end_ts: int, seed: int) -> list[Candle]:
+def _synth_candles(
+    inst_id: str, bar: CandleBar, count: int, end_ts: int, seed: int
+) -> list[Candle]:
     rng = random.Random(f"{inst_id}:{bar.value}:{seed}")
     period = bar_period_ms(bar)
     start_ts = end_ts - period * (count - 1)
@@ -330,12 +339,15 @@ class TradingEngine:
         self.strategies: list[BaseStrategy] = self._build_strategies()
         self.oms: OMS = OMS(NullGateway(), config=ExecutionConfig(mode="demo"))  # type: ignore[arg-type]
         self._adapter: ExchangeAdapter | None = None
+        self._gateway: OkxGateway | None = None
         self._last_inputs: ScreenerInputs | None = None
         self._seq = 0
 
     # -- 初始化 ------------------------------------------------------------
     def _load_settings(self) -> AppSettings:
-        path = self.options.config_path or os.environ.get("DQUANT_CONFIG_PATH", "config/config.yaml")
+        path = self.options.config_path or os.environ.get(
+            "DQUANT_CONFIG_PATH", "config/config.yaml"
+        )
         if Path(path).exists():
             return load_settings(path)
         return load_settings()
@@ -369,6 +381,10 @@ class TradingEngine:
         from dquant.adapters.okx import OkxAdapter, UrllibTransport
 
         creds = load_okx_credentials()
+        if creds is None and os.getenv("DQUANT_REQUIRE_PRIVATE_API", "NO").upper() == "YES":
+            raise RuntimeError(
+                "DQUANT_REQUIRE_PRIVATE_API=YES，但 OKX_DEMO_API_KEY/SECRET/PASSPHRASE 未完整配置"
+            )
         if creds is not None:
             logger.info("OKX 模拟盘密钥已加载 (私有接口可用: 余额/持仓/订单)")
         else:
@@ -381,6 +397,22 @@ class TradingEngine:
         transport.clock_offset_ms = await adapter.sync_time()
         self._adapter = adapter
         if creds is not None:
+            self._gateway = OkxGateway(adapter)
+            self.oms = OMS(
+                self._gateway,
+                config=ExecutionConfig(mode="demo", require_recovery=True),
+            )
+            try:
+                report = await self.oms.recover(Reconciler(self._gateway, self.oms.store))
+                logger.info(
+                    "OKX 启动对账完成: open_orders=%d positions=%d unresolved=%d safe=%s",
+                    len(report.adopted_remote_orders),
+                    report.position_count,
+                    len(report.unresolved_orders),
+                    report.safe_to_resume,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error("OKX 启动对账失败，已保持开仓锁定: %s", exc)
             try:
                 balance = await adapter.fetch_balance()
                 logger.info("密钥验证通过, 模拟盘账户权益: %s USDT", balance.total_equity_usd)
@@ -392,7 +424,10 @@ class TradingEngine:
             await self._init_okx()
             instruments = await self._adapter.load_instruments(InstrumentType.SWAP)  # type: ignore[union-attr]
             self.instruments = {i.inst_id: i for i in instruments if i.quote == "USDT"}
-            self.risk_manager = RiskManager(instruments=self.instruments, kill_switch=self.kill_switch)
+            self.risk_manager = RiskManager(
+                instruments=self.instruments,
+                kill_switch=self.kill_switch,
+            )
         logger.info(
             "engine 初始化完成 source=%s universe=%d dry_run=%s",
             self.options.source,
@@ -438,10 +473,20 @@ class TradingEngine:
             for bar in bars:
                 lookback = _BARS_NEEDED[bar] * bar_period_ms(bar)
 
-                def _one(inst_id: str = inst_id, bar: CandleBar = bar, lookback: int = lookback) -> int:
+                def _one(
+                    inst_id: str = inst_id,
+                    bar: CandleBar = bar,
+                    lookback: int = lookback,
+                ) -> int:
                     runner = AsyncAdapterRunner(adapter)  # type: ignore[arg-type]
                     with self._session_factory() as session:
-                        stats = update_incremental(runner, session, inst_id, bar, lookback_ms=lookback)
+                        stats = update_incremental(
+                            runner,
+                            session,
+                            inst_id,
+                            bar,
+                            lookback_ms=lookback,
+                        )
                         session.commit()
                         return stats.upserted_rows
 
@@ -457,8 +502,20 @@ class TradingEngine:
             divergences = []
             history_bars: dict[str, int] = {}
             for inst_id in self.instruments:
-                daily = [c for c in load_candles_between(session, inst_id, CandleBar.ONE_DAY, 0, close_ts_ms - 1) if c.confirmed]
-                h4 = [c for c in load_candles_between(session, inst_id, CandleBar.FOUR_HOUR, 0, close_ts_ms - 1) if c.confirmed]
+                daily = [
+                    c
+                    for c in load_candles_between(
+                        session, inst_id, CandleBar.ONE_DAY, 0, close_ts_ms - 1
+                    )
+                    if c.confirmed
+                ]
+                h4 = [
+                    c
+                    for c in load_candles_between(
+                        session, inst_id, CandleBar.FOUR_HOUR, 0, close_ts_ms - 1
+                    )
+                    if c.confirmed
+                ]
                 history_bars[inst_id] = len(daily)
                 if len(daily) >= 220:
                     try:
@@ -515,9 +572,21 @@ class TradingEngine:
         try:
             inst_id = candidate.inst_id
             now = utc_now_ms()
-            h1 = [c for c in load_candles_between(session, inst_id, CandleBar.ONE_HOUR, 0, now) if c.confirmed]
-            h4 = [c for c in load_candles_between(session, inst_id, CandleBar.FOUR_HOUR, 0, now) if c.confirmed]
-            daily = [c for c in load_candles_between(session, inst_id, CandleBar.ONE_DAY, 0, now) if c.confirmed]
+            h1 = [
+                c
+                for c in load_candles_between(session, inst_id, CandleBar.ONE_HOUR, 0, now)
+                if c.confirmed
+            ]
+            h4 = [
+                c
+                for c in load_candles_between(session, inst_id, CandleBar.FOUR_HOUR, 0, now)
+                if c.confirmed
+            ]
+            daily = [
+                c
+                for c in load_candles_between(session, inst_id, CandleBar.ONE_DAY, 0, now)
+                if c.confirmed
+            ]
             if len(h1) < 210 or len(h4) < 50 or len(daily) < 2:
                 return None
             highs = [float(c.high) for c in h1]
@@ -527,16 +596,32 @@ class TradingEngine:
             if atr_last <= 0:
                 return None
             ma200_1h = sma_series(closes, 200)
-            ma200_val = None if math.isnan(ma200_1h[-1]) else Decimal(str(round(float(ma200_1h[-1]), 8)))
+            ma200_val = (
+                None
+                if math.isnan(ma200_1h[-1])
+                else Decimal(str(round(float(ma200_1h[-1]), 8)))
+            )
             daily_closes = [float(c.close) for c in daily]
             daily_ma200 = sma_series(daily_closes, 200)
-            daily_ma200_val = None if math.isnan(daily_ma200[-1]) else Decimal(str(round(float(daily_ma200[-1]), 8)))
+            daily_ma200_val = (
+                None
+                if math.isnan(daily_ma200[-1])
+                else Decimal(str(round(float(daily_ma200[-1]), 8)))
+            )
             btc_regime = None
             if inst_id != "BTC-USDT-SWAP":
-                btc_daily = [c for c in load_candles_between(session, "BTC-USDT-SWAP", CandleBar.ONE_DAY, 0, now) if c.confirmed]
+                btc_daily = [
+                    c
+                    for c in load_candles_between(
+                        session, "BTC-USDT-SWAP", CandleBar.ONE_DAY, 0, now
+                    )
+                    if c.confirmed
+                ]
                 if len(btc_daily) >= 220:
                     try:
-                        btc_regime = classify_regime("BTC-USDT-SWAP", CandleBar.ONE_DAY, btc_daily).state
+                        btc_regime = classify_regime(
+                            "BTC-USDT-SWAP", CandleBar.ONE_DAY, btc_daily
+                        ).state
                     except (InsufficientCandlesError, ValueError):
                         btc_regime = None
             now_close = h1[-1].ts_ms + bar_period_ms(CandleBar.ONE_HOUR)
@@ -572,7 +657,7 @@ class TradingEngine:
                 return div
         return None
 
-    def strategy_and_risk_cycle(self, record) -> None:  # noqa: ANN001
+    async def strategy_and_risk_cycle(self, record) -> None:  # noqa: ANN001
         inputs = self._last_inputs
         if inputs is None:
             return
@@ -607,9 +692,9 @@ class TradingEngine:
                 decision.approved, decision.rule, decision.qty,
             )
             if decision.approved and decision.qty > 0 and not self.options.dry_run:
-                self._prepare_order(signal, decision)
+                await self._submit_order(signal, decision)
 
-    def _prepare_order(self, signal, decision) -> None:  # noqa: ANN001
+    async def _submit_order(self, signal, decision) -> None:  # noqa: ANN001
         instrument = self.instruments[signal.inst_id]
         order = self.oms.build_order_request(signal, decision, instrument)
         self._seq += 1
@@ -617,9 +702,16 @@ class TradingEngine:
         order = order.model_copy(
             update={"cl_ord_id": build_client_order_id(prefix, signal.created_ts_ms, self._seq)}
         )
+        if self._gateway is None:
+            logger.warning("未配置 OKX 私有凭证，订单仅生成未提交: %s", order.cl_ord_id)
+            return
+        ack = await self.oms.submit(order)
         logger.info(
-            "订单请求就绪 (未提交): %s %s %s qty=%s",
-            order.cl_ord_id, order.inst_id, order.side, order.size,
+            "订单已提交 OKX: clOrdId=%s ordId=%s state=%s qty=%s",
+            ack.cl_ord_id,
+            ack.ord_id,
+            ack.state.value,
+            order.size,
         )
 
     # -- 主循环 ------------------------------------------------------------
@@ -638,7 +730,7 @@ class TradingEngine:
                 "手动选币完成 run_id=%s universe=%d candidates=%d",
                 record.run_id, record.universe_size, len(record.candidates),
             )
-            self.strategy_and_risk_cycle(record)
+            await self.strategy_and_risk_cycle(record)
             return
         logger.info("进入常驻循环 interval=%.0fs (Ctrl+C 退出)", self.options.interval_sec)
         last_run_id: str | None = None
@@ -647,8 +739,12 @@ class TradingEngine:
                 record = await scheduler.poll(utc_now_ms())
                 if record is not None and record.run_id != last_run_id:
                     last_run_id = record.run_id
-                    logger.info("选币完成 run_id=%s candidates=%d", record.run_id, len(record.candidates))
-                    self.strategy_and_risk_cycle(record)
+                    logger.info(
+                        "选币完成 run_id=%s candidates=%d",
+                        record.run_id,
+                        len(record.candidates),
+                    )
+                    await self.strategy_and_risk_cycle(record)
                     await self.collect_once()
             except asyncio.CancelledError:
                 raise
@@ -665,14 +761,21 @@ def _fetch_tickers_blocking(adapter) -> list[Ticker]:  # noqa: ANN001
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="dquant.scheduler.engine", description="DivergenceQuant 全链路主进程")
+    parser = argparse.ArgumentParser(
+        prog="dquant.scheduler.engine",
+        description="DivergenceQuant 全链路主进程",
+    )
     parser.add_argument("--source", choices=["synthetic", "okx"], default="synthetic")
     parser.add_argument("--db", default=DEFAULT_DB_PATH)
     parser.add_argument("--config", default=None)
     parser.add_argument("--top-n", type=int, default=8)
     parser.add_argument("--interval", type=float, default=30.0)
     parser.add_argument("--once", action="store_true", help="只跑一轮选币+策略+风控后退出")
-    parser.add_argument("--strategies", default=None, help="覆盖 config 的策略选择, 逗号分隔, 如: S1 或 S1,S2")
+    parser.add_argument(
+        "--strategies",
+        default=None,
+        help="覆盖 config 的策略选择, 逗号分隔, 如: S1 或 S1,S2",
+    )
     parser.add_argument("--execute", action="store_true", help="解除 dry-run (仍受 OMS/网关限制)")
     parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args(argv)
@@ -687,7 +790,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         config_path=args.config,
         top_n=args.top_n,
         seed=args.seed,
-        strategies=[name.strip() for name in args.strategies.split(",")] if args.strategies else None,
+        strategies=(
+            [name.strip() for name in args.strategies.split(",")]
+            if args.strategies
+            else None
+        ),
     )
     engine = TradingEngine(options)
     try:

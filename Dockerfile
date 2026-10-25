@@ -36,7 +36,7 @@ COPY src/ /app/src/
 COPY alembic.ini /app/
 COPY alembic/ /app/alembic/
 
-RUN mkdir -p /app/logs /app/reports /app/config && \
+RUN mkdir -p /app/logs /app/reports /app/config /app/data && \
     chown -R dquant:dquant /app
 
 USER dquant

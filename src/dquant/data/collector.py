@@ -344,14 +344,14 @@ def _default_now_ms() -> int:
 def main(argv: list[str] | None = None) -> int:
     """docker-compose collector 服务入口: 对指定币种周期做一次性增量更新。"""
     import argparse
+    import asyncio
     import logging
 
-    import asyncio
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
 
     from dquant.adapters.okx import OkxAdapter, UrllibTransport
     from dquant.db.models import Base
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
 
     parser = argparse.ArgumentParser(prog="dquant.data.collector", description="OKX 行情增量采集")
     parser.add_argument("--inst", action="append", required=True, help="交易对, 可多次传入")
@@ -378,7 +378,11 @@ def main(argv: list[str] | None = None) -> int:
             for inst_id in args.inst:
                 for bar in bars:
                     stats = update_incremental(
-                        runner, session, inst_id, bar, lookback_ms=args.lookback_bars * bar_to_ms(bar)
+                        runner,
+                        session,
+                        inst_id,
+                        bar,
+                        lookback_ms=args.lookback_bars * bar_to_ms(bar),
                     )
                     total += stats.upserted_rows
             session.commit()
