@@ -68,6 +68,29 @@ class ExecutionSettings(BaseModel):
     confirm_ttl_sec: int = Field(default=900, ge=60)
 
 
+class StrategySettings(BaseModel):
+    """策略模块选择与参数覆盖。
+
+    ``active`` 是参与运行的策略名列表（单跑一个就只写一个，组合就写多个）；
+    ``params`` 按策略名覆盖构造参数，策略自身的 ``enabled`` 参数仍优先于本配置。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    active: list[str] = Field(default_factory=lambda: ["S1", "S2", "S3"])
+    params: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+    @field_validator("active")
+    @classmethod
+    def validate_active(cls, value: list[str]) -> list[str]:
+        names = [name.strip() for name in value]
+        if any(not name for name in names):
+            raise ValueError("strategies.active entries must be non-empty")
+        if len(set(names)) != len(names):
+            raise ValueError("strategies.active entries must be unique")
+        return names
+
+
 class AISettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -115,6 +138,7 @@ class AppSettings(BaseModel):
     universe: UniverseSettings = Field(default_factory=UniverseSettings)
     risk: RiskSettings = Field(default_factory=RiskSettings)
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
+    strategies: StrategySettings = Field(default_factory=StrategySettings)
     ai: AISettings = Field(default_factory=AISettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)

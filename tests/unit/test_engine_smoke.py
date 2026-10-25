@@ -6,6 +6,8 @@ import importlib
 
 import pytest
 
+from dquant.contracts.types import SignalAction
+
 
 def test_compose_entry_modules_importable() -> None:
     """docker-compose/Dockerfile 引用的 4 个入口模块必须真实存在 (整合回归护栏)。"""
@@ -127,3 +129,147 @@ async def test_engine_full_chain_synthetic(tmp_path) -> None:  # noqa: ANN001
             for bar in (CandleBar.ONE_DAY, CandleBar.FOUR_HOUR, CandleBar.ONE_HOUR)
         )
     assert total >= 8 * (260 + 320 + 420) * 0.99
+
+
+# ---------------------------------------------------------------------------
+# 策略模块化: 配置选择 / 注册器装配 / 参数覆盖 / 开仓仲裁
+# ---------------------------------------------------------------------------
+def test_strategy_settings_section_parses() -> None:
+    from dquant.settings import AppSettings
+
+    settings = AppSettings.model_validate(
+        {
+            "strategies": {
+                "active": ["S2", "S1"],
+                "params": {"S1": {"stop_atr": 0.9}},
+            }
+        }
+    )
+    assert settings.strategies.active == ["S2", "S1"]
+    assert settings.strategies.params["S1"]["stop_atr"] == 0.9
+    assert AppSettings().strategies.active == ["S1", "S2", "S3"]
+
+
+def test_strategy_settings_rejects_duplicates_and_empty() -> None:
+    from pydantic import ValidationError
+    from dquant.settings import AppSettings
+
+    with pytest.raises(ValidationError):
+        AppSettings.model_validate({"strategies": {"active": ["S1", "S1"]}})
+    with pytest.raises(ValidationError):
+        AppSettings.model_validate({"strategies": {"active": ["S1", " "]}})
+
+
+def test_engine_registry_driven_selection(tmp_path) -> None:  # noqa: ANN001
+    """CLI/配置指定的策略经注册器装配; 未注册的策略告警跳过不阻断。"""
+    from dquant.scheduler.engine import EngineOptions, TradingEngine
+
+    engine = TradingEngine(EngineOptions(db_path=str(tmp_path / "e1.db"), strategies=["S2"]))
+    assert [s.name for s in engine.strategies] == ["S2"]
+
+    engine2 = TradingEngine(
+        EngineOptions(db_path=str(tmp_path / "e2.db"), strategies=["S2", "NOPE", "S1"])
+    )
+    assert [s.name for s in engine2.strategies] == ["S2", "S1"]
+
+
+def test_engine_params_override_from_config(tmp_path) -> None:  # noqa: ANN001
+    from dquant.scheduler.engine import EngineOptions, TradingEngine
+
+    config = tmp_path / "cfg.yaml"
+    config.write_text(
+        "strategies:\n"
+        "  active:\n"
+        "    - S1\n"
+        "  params:\n"
+        "    S1:\n"
+        "      stop_atr: 0.9\n",
+        encoding="utf-8",
+    )
+    engine = TradingEngine(EngineOptions(db_path=str(tmp_path / "e.db"), config_path=str(config)))
+    (strategy,) = engine.strategies
+    assert strategy.name == "S1"
+    assert strategy.params["stop_atr"] == 0.9
+
+
+class _StubStrategy:
+    """最小策略替身: 不走 BaseStrategy 参数校验, 直接按脚本发信号。"""
+
+    def __init__(self, name: str, signals: list) -> None:  # noqa: ANN001
+        self.name = name
+        self.version = "1.0.0"
+        self._signals = signals
+
+    def accepts(self, candidate) -> bool:  # noqa: ANN001
+        del candidate
+        return True
+
+    def on_bar(self, ctx) -> list:  # noqa: ANN001
+        del ctx
+        return list(self._signals)
+
+
+def _sig(sid: str, strategy: str, inst: str, action) -> Signal:  # noqa: ANN001
+    from decimal import Decimal
+
+    from dquant.contracts import Signal
+    from dquant.contracts.types import OrderType, SignalSide
+
+    return Signal(
+        signal_id=sid,
+        inst_id=inst,
+        side=SignalSide.LONG,
+        action=action,
+        entry_type=OrderType.LIMIT,
+        price=Decimal("100"),
+        stop_loss=Decimal("95"),
+        take_profits=[],
+        reason="test",
+        strategy_name=strategy,
+        created_ts_ms=1000,
+    )
+
+
+def test_select_signals_open_arbitration() -> None:
+    """同一币种的开仓只允许排在前面的策略胜出。"""
+    from types import SimpleNamespace
+
+    from dquant.scheduler.engine import select_signals
+
+    first = _StubStrategy("A", [_sig("a1", "A", "BTC-USDT-SWAP", SignalAction.OPEN)])
+    second = _StubStrategy("B", [_sig("b1", "B", "BTC-USDT-SWAP", SignalAction.OPEN)])
+    ctx = SimpleNamespace(candidate=None)
+    result = select_signals([first, second], [ctx])
+    assert [s.signal_id for s in result] == ["a1"]
+
+    # 换顺序则 B 胜出: 顺序即优先级
+    result2 = select_signals([second, first], [ctx])
+    assert [s.signal_id for s in result2] == ["b1"]
+
+
+def test_select_signals_different_inst_and_management_pass() -> None:
+    from types import SimpleNamespace
+
+    from dquant.scheduler.engine import select_signals
+
+    first = _StubStrategy("A", [_sig("a1", "A", "BTC-USDT-SWAP", SignalAction.OPEN)])
+    second = _StubStrategy(
+        "B",
+        [
+            _sig("b1", "B", "ETH-USDT-SWAP", SignalAction.OPEN),        # 不同币种: 放行
+            _sig("b2", "B", "BTC-USDT-SWAP", SignalAction.CLOSE),      # 管理类: 不受仲裁
+        ],
+    )
+    result = select_signals([first, second], [SimpleNamespace(candidate=None)])
+    assert {s.signal_id for s in result} == {"a1", "b1", "b2"}
+
+
+def test_select_signals_dedupes_same_signal_id() -> None:
+    from types import SimpleNamespace
+
+    from dquant.scheduler.engine import select_signals
+
+    first = _StubStrategy("A", [_sig("a1", "A", "BTC-USDT-SWAP", SignalAction.OPEN)])
+    # 同一策略在两个 context 上重复发同一 signal_id
+    result = select_signals([first], [SimpleNamespace(candidate=None), SimpleNamespace(candidate=None)])
+    assert [s.signal_id for s in result] == ["a1"]

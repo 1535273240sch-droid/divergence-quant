@@ -37,6 +37,20 @@ execution:
   live_confirm_mode: manual
   confirm_ttl_sec: 900
 
+# 策略模块选择: 单跑写一个, 组合写多个; 顺序即同币种开仓冲突时的优先级
+# params 按策略名覆盖构造参数 (策略自身 enabled 参数优先, 例如 S3 默认关闭)
+strategies:
+  active:
+    - S1
+    - S2
+    - S3
+  params: {}
+  # params 示例:
+  #   S1:
+  #     stop_atr: 0.6
+  #   S3:
+  #     enabled: true
+
 ai:
   enabled: true
   timeout_sec: 12

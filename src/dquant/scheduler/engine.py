@@ -31,8 +31,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from dquant.adapters.base import ExchangeAdapter
-from dquant.contracts import Candle, Instrument, Ticker
-from dquant.contracts.types import CandleBar, InstrumentState, InstrumentType
+from dquant.contracts import Candle, Instrument, Signal, Ticker
+from dquant.contracts.types import CandleBar, InstrumentState, InstrumentType, SignalAction
 from dquant.core.divergence import detect_divergences
 from dquant.core.indicators import atr as atr_series, sma as sma_series
 from dquant.core.regime import InsufficientCandlesError, classify_regime
@@ -51,11 +51,9 @@ from dquant.scheduler.persistence import ScreenerRunStore
 from dquant.scheduler.runner import ScreenerScheduler, bar_period_ms, last_closed_bar_ts
 from dquant.scheduler.service import ScreenerService
 from dquant.settings import AppSettings, load_settings
+import dquant.strategies  # noqa: F401  导入即注册全部内置策略
+from dquant.strategies import create_strategy, list_strategies
 from dquant.strategies.base import BaseStrategy, StrategyContext
-from dquant.strategies.runner import generate_signals
-from dquant.strategies.s1 import S1TrendPullbackStrategy
-from dquant.strategies.s2 import S2RangeReversalStrategy
-from dquant.strategies.s3 import S3CounterTrendStrategy
 
 logger = logging.getLogger("dquant.engine")
 
@@ -221,6 +219,47 @@ def _synth_tickers() -> list[Ticker]:
 
 
 # ---------------------------------------------------------------------------
+# 策略分发与开仓仲裁
+# ---------------------------------------------------------------------------
+def select_signals(
+    strategies: Sequence[BaseStrategy],
+    contexts: Sequence[StrategyContext],
+    log: logging.Logger | None = None,
+) -> list:
+    """按 active 顺序分发策略并执行开仓仲裁。
+
+    规则:
+    1. 同一 signal_id 只保留首个 (幂等去重);
+    2. 同一币种每根 K 线只允许一个策略的开仓信号胜出——先到先得,
+       顺序即 strategies 列表顺序 (配置 strategies.active 的书写顺序);
+    3. 平仓/减仓/移动止损等管理类信号不受仲裁限制 (风控与 OMS 自行幂等)。
+    """
+    log = log or logger
+    claimed: dict[str, str] = {}
+    seen_ids: set[str] = set()
+    signals: list = []
+    for strategy in strategies:
+        for ctx in contexts:
+            if not strategy.accepts(ctx.candidate):
+                continue
+            for sig in strategy.on_bar(ctx):
+                if sig.signal_id in seen_ids:
+                    continue
+                seen_ids.add(sig.signal_id)
+                if sig.action is SignalAction.OPEN:
+                    owner = claimed.get(sig.inst_id)
+                    if owner is not None and owner != sig.strategy_name:
+                        log.info(
+                            "开仓仲裁: %s 在 %s 上的开仓让位给 %s",
+                            sig.strategy_name, sig.inst_id, owner,
+                        )
+                        continue
+                    claimed.setdefault(sig.inst_id, sig.strategy_name)
+                signals.append(sig)
+    return signals
+
+
+# ---------------------------------------------------------------------------
 # 主引擎
 # ---------------------------------------------------------------------------
 @dataclass
@@ -233,6 +272,7 @@ class EngineOptions:
     config_path: str | None = None
     top_n: int = 8
     seed: int = 7
+    strategies: Sequence[str] | None = None  # 覆盖 config 的 strategies.active
 
 
 class TradingEngine:
@@ -247,11 +287,7 @@ class TradingEngine:
         self.instruments: dict[str, Instrument] = {i.inst_id: i for i in _synth_instruments()}
         self.kill_switch = KillSwitch()
         self.risk_manager = RiskManager(instruments=self.instruments, kill_switch=self.kill_switch)
-        self.strategies: list[BaseStrategy] = [
-            S1TrendPullbackStrategy(),
-            S2RangeReversalStrategy(),
-            S3CounterTrendStrategy(),  # enabled=False 默认关闭
-        ]
+        self.strategies: list[BaseStrategy] = self._build_strategies()
         self.oms: OMS = OMS(NullGateway(), config=ExecutionConfig(mode="demo"))  # type: ignore[arg-type]
         self._adapter: ExchangeAdapter | None = None
         self._last_inputs: ScreenerInputs | None = None
@@ -263,6 +299,31 @@ class TradingEngine:
         if Path(path).exists():
             return load_settings(path)
         return load_settings()
+
+    def _build_strategies(self) -> list[BaseStrategy]:
+        """按配置(CLI 覆盖 > config.yaml)从注册器装配策略模块。
+
+        - active 列表顺序即同币种开仓冲突时的优先级
+        - 未注册的策略名告警并跳过, 不阻断引擎启动
+        - params 按策略名覆盖构造参数; 策略自身 enabled 参数仍最优先
+        """
+        active = list(self.options.strategies or self.settings.strategies.active)
+        params_map = self.settings.strategies.params
+        known = set(list_strategies())
+        built: list[BaseStrategy] = []
+        for name in active:
+            if name not in known:
+                logger.warning("策略 %s 未注册(可用: %s), 已跳过", name, sorted(known))
+                continue
+            built.append(create_strategy(name, params_map.get(name) or None))
+        if not built:
+            logger.warning("active 策略列表为空, 引擎将只选币不产生交易信号")
+        logger.info(
+            "策略装配: active=%s loaded=%s",
+            active,
+            [s.name for s in built],
+        )
+        return built
 
     async def _init_okx(self) -> None:
         from dquant.adapters.okx import OkxAdapter, UrllibTransport
@@ -464,14 +525,11 @@ class TradingEngine:
             ctx = self._build_context(cand)
             if ctx is not None:
                 contexts.append(ctx)
-        signals = []
-        for strategy in self.strategies:
-            accepted = [c for c in contexts if strategy.accepts(c.candidate)]
-            if accepted:
-                signals.extend(generate_signals(strategy, accepted))
+        signals = select_signals(self.strategies, contexts)
         logger.info(
-            "策略周期: candidates=%d contexts=%d signals=%d",
+            "策略周期: candidates=%d contexts=%d signals=%d strategies=%s",
             len(record.candidates), len(contexts), len(signals),
+            [s.name for s in self.strategies],
         )
         equity = Decimal("10000")
         for signal in signals:
@@ -558,6 +616,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--top-n", type=int, default=8)
     parser.add_argument("--interval", type=float, default=30.0)
     parser.add_argument("--once", action="store_true", help="只跑一轮选币+策略+风控后退出")
+    parser.add_argument("--strategies", default=None, help="覆盖 config 的策略选择, 逗号分隔, 如: S1 或 S1,S2")
     parser.add_argument("--execute", action="store_true", help="解除 dry-run (仍受 OMS/网关限制)")
     parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args(argv)
@@ -572,6 +631,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         config_path=args.config,
         top_n=args.top_n,
         seed=args.seed,
+        strategies=[name.strip() for name in args.strategies.split(",")] if args.strategies else None,
     )
     engine = TradingEngine(options)
     try:
