@@ -32,9 +32,9 @@ flowchart TD
     M06[M06 事件驱动组合回测内核] -.-> M07
     M06 -.-> M08
     
-    M11[M11 FastAPI 服务 & 安全鉴权 & 黑金邮件] --- M08
+    M11[M11 FastAPI 服务 & 多用户鉴权 & 审计] --- M08
     M11 --- M09
-    M12[M12 黑金美学 Web 控制台] --- M11
+    M12[M12 冰透暖白 Web 控制台] --- M11
     M13[M13 Docker 编排 / Prometheus / 监控灾备] --- M11
 ```
 
@@ -53,8 +53,8 @@ src/dquant/             正式 Python 业务包
   ├── risk/             仓位计算、持仓/杠杆限制、BTC急跌熔断、AI否决/减仓
   ├── execution/        OMS订单状态机、clOrdId幂等、超时补单、对账恢复
   ├── ai/               OpenAI兼容多路由网关、四个专业Agent
-  ├── api/              FastAPI服务、TOTP双因素鉴权、审计脱敏、WebSocket
-  ├── notify/           顶级黑金美学邮件模板、滑动窗口限流、发件箱补发
+  ├── api/              FastAPI服务、多用户鉴权、账户隔离、审计与WebSocket
+  ├── notify/           邮件模板、滑动窗口限流、发件箱补发
   ├── scheduler/        4H收盘定时轮询调度、选币持久化
   ├── db/               TimescaleDB/SQLite ORM 模型
   └── settings.py       配置加载与安全门禁
@@ -87,7 +87,7 @@ tests/                  自动化 Python 测试套件 (462 项)
 
 ### 1. 环境准备
 - Python 3.11 或更高版本
-- Node.js 18+（用于前端控制台）
+- Python 3.11+（后端与静态控制台预览）
 
 ### 2. 执行自动化测试
 ```bash

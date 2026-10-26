@@ -1,4 +1,9 @@
-# M12 HANDOFF：Web 桌面控制台与手机端
+# M12 HANDOFF：Web 桌面控制台与手机端（历史归档）
+
+> 本文记录旧 React/Vite 方案，当前实现已切换为用户确认的冰透暖白静态控制台。
+> 当前入口：`web/ice-console/index.html`；当前 REST 接入：`web/ice-console/assets/live.js`；
+> 当前因子实验室：`web/ice-console/assets/factors.js`。本文中的 `web/src/*`、`console.html`
+> 和旧设计令牌路径不代表当前仓库文件树。
 
 ## 当前交付范围：T9.2a 设计令牌底座
 
