@@ -108,7 +108,7 @@ def candles(inst_id: str, bar: str, limit: int = 280) -> list[dict[str, Any]]:
 
     rows = _rows(
         "SELECT ts_ms, open, high, low, close, vol, vol_quote FROM candles "
-        "WHERE inst_id=? AND bar=? ORDER BY ts_ms DESC LIMIT ?",
+        "WHERE inst_id=? AND bar=? AND confirmed=1 ORDER BY ts_ms DESC LIMIT ?",
         (inst_id, bar, limit),
     )
     if not rows:
@@ -125,6 +125,60 @@ def candles(inst_id: str, bar: str, limit: int = 280) -> list[dict[str, Any]]:
         }
         for r in reversed(rows)
     ]
+
+
+def pending_signal(signal_id: str) -> dict[str, Any] | None:
+    """读取一个仍处于 PENDING 状态的引擎信号。"""
+
+    rows = _rows(
+        "SELECT id, strategy, inst_id, side, action, price, stop_loss, "
+        "take_profits, reason, status, created_at FROM strategy_signals "
+        "WHERE id=? AND status='PENDING' LIMIT 1",
+        (signal_id,),
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    tps_raw = row["take_profits"]
+    try:
+        import json as _json
+
+        tps = _json.loads(tps_raw) if isinstance(tps_raw, str) else (tps_raw or [])
+    except (ValueError, TypeError):
+        tps = []
+    return {
+        "signal_id": str(row["id"]),
+        "inst_id": row["inst_id"],
+        "side": row["side"],
+        "action": row["action"],
+        "price": float(row["price"]),
+        "stop_loss": float(row["stop_loss"]) if row["stop_loss"] is not None else None,
+        "take_profits": tps,
+        "reason": row["reason"],
+        "strategy_name": row["strategy"],
+        "created_at": row["created_at"],
+    }
+
+
+def update_signal_status(signal_id: str, status: str) -> bool:
+    """把引擎信号推进到已确认/已拒绝状态。"""
+
+    path = engine_db_path()
+    if not path.is_file():
+        return False
+    try:
+        conn = sqlite3.connect(path, timeout=3.0)
+        try:
+            cur = conn.execute(
+                "UPDATE strategy_signals SET status=? WHERE id=? AND status='PENDING'",
+                (status, signal_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
 
 
 def available_instruments(bar: str = "4H") -> list[str]:
@@ -212,7 +266,11 @@ def overview() -> dict[str, Any]:
         "engine_db": str(path),
         "engine_db_exists": exists,
         "engine_db_mtime_ms": db_mtime,
-        "last_candle_ts_ms": int(last_candle[0]["ts"]) if last_candle and last_candle[0]["ts"] else None,
+        "last_candle_ts_ms": (
+            int(last_candle[0]["ts"])
+            if last_candle and last_candle[0]["ts"]
+            else None
+        ),
         "instruments": len(instruments),
         "instrument_list": instruments,
         "candles": count("candles") if exists else 0,

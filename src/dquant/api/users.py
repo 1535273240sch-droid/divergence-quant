@@ -38,7 +38,8 @@ def users_db_path() -> Path:
 
 
 def registration_allowed() -> bool:
-    return (os.getenv("DQUANT_ALLOW_REGISTRATION", "1").strip() or "1") not in {"0", "false", "False"}
+    value = os.getenv("DQUANT_ALLOW_REGISTRATION", "1").strip() or "1"
+    return value.lower() not in {"0", "false"}
 
 
 def _connect() -> sqlite3.Connection:

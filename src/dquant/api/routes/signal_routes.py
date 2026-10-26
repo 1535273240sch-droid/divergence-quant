@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -42,6 +43,26 @@ def populate_mock_signal(signal_data: dict[str, Any]) -> None:
     """工具函数：注入模拟待确认信号（供开发与集成测试调用）。"""
     sig_id = signal_data["signal_id"]
     _pending_signals_store[sig_id] = signal_data
+
+
+def _confirmation_token(signal_id: str, user: dict[str, Any] | None, now: float) -> str | None:
+    """只向已登录用户发放确认令牌，匿名只读不能获得交易凭证。"""
+
+    return confirmation_token_manager.create_token(signal_id, now=now) if user else None
+
+
+def _created_ms(value: Any, fallback: int) -> int:
+    if hasattr(value, "timestamp"):
+        return int(value.timestamp() * 1000)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return int(parsed.timestamp() * 1000)
+        except ValueError:
+            pass
+    return fallback
 
 
 @router.get("/pending", response_model=list[PendingSignalItem], summary="获取待确认交易信号列表")
@@ -88,9 +109,9 @@ async def list_pending_signals(user: OptionalUser) -> list[PendingSignalItem]:
                 reason=row["reason"],
                 strategy_name=row["strategy_name"],
                 score=0.0,
-                created_ts_ms=created_ms,
+                created_ts_ms=_created_ms(created_dt, created_ms),
                 expires_at_ts_ms=created_ms + 900_000,
-                confirmation_token=confirmation_token_manager.create_token(sig_id, now=now),
+                confirmation_token=_confirmation_token(sig_id, user, now),
                 ai_comment=None,
                 ai_action=None,
             )
@@ -106,7 +127,7 @@ async def list_pending_signals(user: OptionalUser) -> list[PendingSignalItem]:
 
 
         # 生成一次性确认令牌
-        token = confirmation_token_manager.create_token(sig_id, now=now)
+        token = _confirmation_token(sig_id, user, now)
 
         tps = [
             TakeProfitItem(price=tp["price"], fraction=tp["fraction"])
@@ -139,12 +160,12 @@ async def list_pending_signals(user: OptionalUser) -> list[PendingSignalItem]:
 @router.get("/{signal_id}", response_model=PendingSignalItem, summary="获取单个信号详情")
 async def get_signal_detail(signal_id: str, user: OptionalUser) -> PendingSignalItem:
     """获取指定信号的详细信息。仅读取，不产生任何交易副作用。"""
-    data = _pending_signals_store.get(signal_id)
+    data = _pending_signals_store.get(signal_id) or live_data.pending_signal(signal_id)
     if not data:
         raise NotFoundException(message=f"未找到信号 ID: {signal_id}")
 
     now = time.time()
-    token = confirmation_token_manager.create_token(signal_id, now=now)
+    token = _confirmation_token(signal_id, user, now)
     tps = [
         TakeProfitItem(price=tp["price"], fraction=tp["fraction"])
         for tp in data.get("take_profits", [])
@@ -162,7 +183,9 @@ async def get_signal_detail(signal_id: str, user: OptionalUser) -> PendingSignal
         reason=data.get("reason", "4H 周期背离触发"),
         strategy_name=data.get("strategy_name", "S1 顺势回调"),
         score=data.get("score", 85.0),
-        created_ts_ms=data.get("created_ts_ms", int(now * 1000)),
+        created_ts_ms=_created_ms(
+            data.get("created_at"), data.get("created_ts_ms", int(now * 1000))
+        ),
         expires_at_ts_ms=data.get("expires_at_ts_ms", int(now * 1000) + 900_000),
         confirmation_token=token,
         ai_comment=data.get("ai_comment"),
@@ -187,6 +210,10 @@ async def confirm_signal_order(
     4. 产生唯一客户订单号 (cl_ord_id) 并记入审计日志。
     """
     data = _pending_signals_store.get(signal_id)
+    persisted = False
+    if data is None:
+        data = live_data.pending_signal(signal_id)
+        persisted = data is not None
     if not data:
         raise NotFoundException(message=f"待确认信号不存在或已过期: {signal_id}")
 
@@ -223,7 +250,11 @@ async def confirm_signal_order(
             )
 
     # 3. 标记信号状态为 CONFIRMED
-    data["status"] = "CONFIRMED"
+    if persisted:
+        if not live_data.update_signal_status(signal_id, "CONFIRMED"):
+            raise APIException("SIGNAL_UPDATE_FAILED", "引擎信号状态更新失败，请重试")
+    else:
+        data["status"] = "CONFIRMED"
     cl_ord_id = f"ord_{uuid.uuid4().hex[:12]}"
     data["cl_ord_id"] = cl_ord_id
 
@@ -260,8 +291,12 @@ async def confirm_signal_order(
         inst_id=data["inst_id"],
         side=data["side"],
         cl_ord_id=cl_ord_id,
-        status="SUBMITTED",
-        message="信号已确认，订单已成功提交执行",
+        status="CONFIRMED" if persisted else "SUBMITTED",
+        message=(
+            "信号已确认并记录到引擎状态；当前 API 不直接调用 OMS"
+            if persisted
+            else "信号已确认，订单已成功提交执行"
+        ),
     )
 
 
@@ -273,11 +308,19 @@ async def reject_signal(
 ) -> StandardSuccessResponse:
     """人工驳回信号。将其标记为 REJECTED。"""
     data = _pending_signals_store.get(signal_id)
+    persisted = False
+    if data is None:
+        data = live_data.pending_signal(signal_id)
+        persisted = data is not None
     if not data:
         raise NotFoundException(message=f"信号未找到: {signal_id}")
 
-    data["status"] = "REJECTED"
-    data["reject_reason"] = req.reason
+    if persisted:
+        if not live_data.update_signal_status(signal_id, "REJECTED"):
+            raise APIException("SIGNAL_UPDATE_FAILED", "引擎信号状态更新失败，请重试")
+    else:
+        data["status"] = "REJECTED"
+        data["reject_reason"] = req.reason
 
     await _audit_service.log_action(
         user=user["username"],

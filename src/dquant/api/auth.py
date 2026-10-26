@@ -181,7 +181,9 @@ class ConfirmationTokenManager:
 
         try:
             raw_text = base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8")
-            parts = raw_text.split(":")
+            # signal_id 可能来自策略确定性 ID，内部允许包含冒号；只从右侧
+            # 拆出 expires/nonce/signature，避免真实引擎信号无法确认。
+            parts = raw_text.rsplit(":", 3)
             if len(parts) != 4:
                 return False
             sig_id, exp_str, nonce, signature = parts

@@ -1,7 +1,7 @@
 # DivergenceQuant
 
-[![Tests](https://img.shields.io/badge/Python_Tests-442_Passed_(100%25)-00F5A0.svg)](https://github.com/1535273240sch-droid/divergence-quant)
-[![Web Tests](https://img.shields.io/badge/Web_Tests-201_Passed_(100%25)-00F5A0.svg)](https://github.com/1535273240sch-droid/divergence-quant)
+[![Tests](https://img.shields.io/badge/Python_Tests-462_Passed_(100%25)-00F5A0.svg)](https://github.com/1535273240sch-droid/divergence-quant)
+[![Web](https://img.shields.io/badge/Web-Static_Console-00F5A0.svg)](https://github.com/1535273240sch-droid/divergence-quant/tree/main/web/ice-console)
 [![Trading Mode](https://img.shields.io/badge/Trading_Mode-OKX_Demo_Only-FFB800.svg)](https://github.com/1535273240sch-droid/divergence-quant)
 [![License](https://img.shields.io/badge/License-Proprietary-CBD5E1.svg)](https://github.com/1535273240sch-droid/divergence-quant)
 
@@ -9,7 +9,7 @@ DivergenceQuant 是面向 OKX USDT 永续合约的高性能多币种量化交易
 
 核心设计基于 **MACD 柱段背离检测**、**SMA200/EMA200 双轨趋势防抖分类**、**多因子动态选币**、**全事件驱动多币种回测内核**、**AI 协同多重避雷审阅** 以及 **三权分立安全交易执行与自动对账**。
 
-> **当前系统版本**: `v0.2.0-alpha` (M00～M13 全模块核心整合与验收版)  
+> **当前系统版本**: `v0.3.0-alpha` (OKX 模拟盘、多用户账户、实时控制台与因子实验室整合版)
 > **运行模式**: **OKX 模拟盘模式优先（严格禁止未经审核连接实盘）**  
 > **详细版本说明**: 详见 [更新说明.md](./更新说明.md) 与 [未完成事项.md](./未完成事项.md)
 
@@ -59,10 +59,8 @@ src/dquant/             正式 Python 业务包
   ├── db/               TimescaleDB/SQLite ORM 模型
   └── settings.py       配置加载与安全门禁
 
-web/                    现代化前端控制台
-  ├── src/              React 18 + TypeScript + Vite 源码
-  ├── console.html      新版应用控制台入口
-  └── index.html        全功能黑金美学原型入口
+web/                    冰透暖白静态前端控制台
+  └── ice-console/      自包含 HTML/CSS/JS、图表库与字体
 
 deploy/                 生产部署与运维配置
   ├── nginx/            生产级 Nginx 反向代理配置 (HTTPS/WSS/限流)
@@ -79,7 +77,7 @@ scripts/                自动化运维与辅助工具
   ├── backup.sh         AES-256-CBC 强加密全量备份
   └── restore.sh        签名校验与安全恢复演练脚本
 
-tests/                  自动化测试套件 (442 项测试)
+tests/                  自动化 Python 测试套件 (462 项)
 协作/                   各模块 HANDOFF 交付文档与验收记录 (M00～M13)
 ```
 
@@ -93,17 +91,26 @@ tests/                  自动化测试套件 (442 项测试)
 
 ### 2. 执行自动化测试
 ```bash
-# 执行全部 Python 单元与集成测试 (442 项)
+# 执行全部 Python 单元与集成测试 (当前基线 462 项)
 pytest
-
-# 执行前端组件与逻辑测试 (201 项)
-cd web && npm test && cd ..
 
 # 执行代码风格与规范检查
 ruff check src tests scripts
 ```
 
-### 3. 运行回测与报告生成
+### 3. 启动冰透暖白控制台
+
+当前前端是用户最近提交的自包含静态版本，不再保留旧 React/Vite 工程：
+
+```bash
+python -m http.server 8811 --directory web
+# 浏览器打开 http://127.0.0.1:8811/ice-console/
+```
+
+要访问真实 `/api/v1`，请通过 Nginx/Docker Compose 同源提供前端和 API；直接使用
+`file://` 只适合静态视觉预览。
+
+### 4. 运行回测与报告生成
 ```python
 from dquant.backtest import BacktestConfig, run_backtest, write_report
 from dquant.strategies import S1TrendPullbackStrategy
@@ -116,6 +123,7 @@ from dquant.strategies import S1TrendPullbackStrategy
 
 ## 安全规则与红线
 
-1. **敏感凭证绝不上库**：`.env`、API Key、密码、Token 严禁提交。
+1. **敏感凭证绝不上库**：`.env`、API Key、密码、Token 严禁提交；用户 OKX 凭证按用户使用 Fernet 密文保存。
 2. **默认模拟盘**：`LIVE_TRADING_CONFIRM` 环境变量默认必须为 `NO`，未通过 28 天模拟盘门禁考核前严禁开启实盘。
-3. **资金安全第一**：GET 请求严禁产生任何交易动作；实盘确认必须使用 HMAC-SHA256 一次性限时令牌。
+3. **资金安全第一**：GET 请求严禁产生任何交易动作；确认操作使用 HMAC-SHA256 一次性限时令牌。
+4. **多用户隔离**：注册、登录、账户摘要和交易所凭证按 JWT 用户隔离；因子实验室为当前引擎共享配置。

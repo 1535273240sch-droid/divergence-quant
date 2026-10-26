@@ -94,6 +94,15 @@ def test_confirmation_token_manager_one_time_use() -> None:
     assert not manager.verify_and_consume(token_expired, expected_signal_id=sig_id, now=t0 + 901)
 
 
+def test_confirmation_token_supports_strategy_ids_with_colons() -> None:
+    """策略确定性 signal_id 常含冒号，令牌解析不能截断它。"""
+    manager = ConfirmationTokenManager(secret_key="test_secret_key_123", ttl_sec=900)
+    signal_id = "S1:1.0.0:BTC-USDT-SWAP:long:1750000000000"
+    token = manager.create_token(signal_id, now=20000.0)
+
+    assert manager.verify_and_consume(token, expected_signal_id=signal_id, now=20001.0)
+
+
 def test_sensitive_data_sanitization() -> None:
     """测试敏感字段脱敏：密码/令牌替换为 ******，API Key 仅保留后 4 位。"""
     data = {

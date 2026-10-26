@@ -284,7 +284,7 @@ def _arg_int(value: Any) -> int:
 
 def _map2(a: list[float], b: list[float], fn) -> list[float]:
     out: list[float] = []
-    for x, y in zip(a, b):
+    for x, y in zip(a, b, strict=True):
         try:
             out.append(fn(x, y))
         except (ZeroDivisionError, ValueError, OverflowError):
@@ -374,7 +374,7 @@ def _corr(a: list[float], b: list[float], n: int) -> list[float]:
         vb = sum((v - mb) ** 2 for v in wb)
         if va == 0 or vb == 0:
             continue
-        cov = sum((x - ma) * (y - mb) for x, y in zip(wa, wb))
+        cov = sum((x - ma) * (y - mb) for x, y in zip(wa, wb, strict=True))
         out[i] = cov / math.sqrt(va * vb)
     return out
 
@@ -441,7 +441,7 @@ _FUNCS: dict[str, Any] = {
     "minimum": lambda a, b: _map2(a, b, min),
     "macd": lambda x, fast, slow: _map2(_ema(x, fast), _ema(x, slow), lambda a, b: a - b),
     "corr": lambda a, b, n: _corr(a, b, n),
-    "atr": lambda h, l, c, n: _atr(h, l, c, n),
+    "atr": lambda high, low, close, n: _atr(high, low, close, n),
 }
 
 
@@ -486,9 +486,9 @@ class _Evaluator:
                 if len(raw) != 4:
                     raise FactorError("atr(high, low, close, n) 需要 4 个参数")
                 h = _series(raw[0], self.length)
-                l = _series(raw[1], self.length)
+                low = _series(raw[1], self.length)
                 c = _series(raw[2], self.length)
-                return fn(h, l, c, _arg_int(raw[3]))
+                return fn(h, low, c, _arg_int(raw[3]))
             if name in {"ma", "ema", "std", "zscore", "rank", "roc", "rsi", "delay", "corr"}:
                 needed = 3 if name == "corr" else 2
                 if len(raw) != needed:
@@ -533,9 +533,17 @@ def _build_env(candles: list[dict[str, Any]]) -> dict[str, list[float]]:
         "low": lows,
         "close": closes,
         "volume": volumes,
-        "hl2": [(h + l) / 2 for h, l in zip(highs, lows)],
-        "hlc3": [(h + l + c) / 3 for h, l, c in zip(highs, lows, closes)],
-        "ohlc4": [(o + h + l + c) / 4 for o, h, l, c in zip(opens, highs, lows, closes)],
+        "hl2": [(high + low) / 2 for high, low in zip(highs, lows, strict=True)],
+        "hlc3": [
+            (high + low + close)
+            / 3
+            for high, low, close in zip(highs, lows, closes, strict=True)
+        ],
+        "ohlc4": [
+            (open_px + high + low + close)
+            / 4
+            for open_px, high, low, close in zip(opens, highs, lows, closes, strict=True)
+        ],
         "returns": returns,
     }
 
@@ -567,7 +575,7 @@ def preview_factor(
     tail = series[-80:]
     points = [
         {"ts_ms": int(c["ts_ms"]), "value": (float(v) if math.isfinite(v) else None)}
-        for c, v in zip(candles[-80:], tail)
+        for c, v in zip(candles[-80:], tail, strict=True)
     ]
     value = latest_value(formula, candles)
     return {"inst_id": inst_id, "bar": bar, "value": value, "points": points}

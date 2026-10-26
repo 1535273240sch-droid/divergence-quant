@@ -8,7 +8,8 @@
 - 单页可直接打开：`index.html`
 - 图表：TradingView Lightweight Charts v5.0.8（本地 vendor，无外网依赖）
 - 字体：Inter + JetBrains Mono（本地 woff2）
-- 纯前端演示数据，未接后端 API
+- `assets/live.js` 已接入 `/api/v1`：登录/注册、账户、OKX 模拟盘连接、引擎 K 线、候选池、信号、盘口与逐笔成交
+- `assets/factors.js` 已接入因子实验室 API：注册、预览、启停、编辑、删除与综合分
 
 ## 预览
 
@@ -46,7 +47,8 @@ python -m http.server 8811
 
 - 1440×900、3840×2160 两档截图：无横向溢出，三栏均完整填充，4K 居中保持紧凑。
 - Chrome/Edge 无 console 报错（CDP 采集 Runtime / Log）。
-- 已知演示限制：数据为本地生成并实时轻量跳动；未接 OKX / 后端 API；其余导航为演示占位。
+- 未连接后端时仍保留本地视觉兜底；连接后会清除关键演示行情并使用后端返回的数据
+- 交易确认、账户密钥保存和因子写操作必须通过后端 API；前端不保存 Secret
 
 ## 目录
 

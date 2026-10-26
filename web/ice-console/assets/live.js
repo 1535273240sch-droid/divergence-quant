@@ -771,7 +771,7 @@
           method: "POST",
           body: { confirmation_token: liveSignal.confirmation_token, current_price: String(CQ.state.mid) }
         })
-          .then(function (r) { CQ.toast("下单请求已提交 · " + (r.status || "OK")); })
+          .then(function (r) { CQ.toast(r.message || ("信号状态：" + (r.status || "OK"))); })
           .catch(function (e) {
             if (e.code === "UNAUTHORIZED") {
               showLogin("下单需要登录，请先登录或注册");

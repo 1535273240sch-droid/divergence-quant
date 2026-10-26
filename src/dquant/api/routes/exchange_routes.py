@@ -96,7 +96,11 @@ async def exchange_status(user: CurrentUser) -> ExchangeConnectionStatus:
     return await _check(load_user_credentials(user["username"]))
 
 
-@router.post("/test", response_model=ExchangeConnectionStatus, summary="测试并保存当前用户的 OKX 密钥")
+@router.post(
+    "/test",
+    response_model=ExchangeConnectionStatus,
+    summary="测试并保存当前用户的 OKX 密钥",
+)
 async def test_exchange_connection(
     req: ExchangeConnectionTestRequest,
     user: CurrentUser,

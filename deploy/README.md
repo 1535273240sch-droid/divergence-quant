@@ -135,6 +135,9 @@ sudo certbot certonly --webroot -w /opt/dquant/deploy/nginx/certbot -d yourdomai
 docker compose up -d --build
 ```
 
+当前前端入口为 `web/ice-console/`，Compose 已直接挂载该目录；不需要执行旧的
+`npm run build`，也不要再创建或恢复已删除的 `web/dist`、`web/src` 和 `web/index.html`。
+
 ### 6.2 执行健康巡检
 ```bash
 bash scripts/healthcheck.sh
