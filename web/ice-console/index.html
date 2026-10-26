@@ -12,7 +12,7 @@
     />
     <link rel="preload" href="fonts/jetbrains-mono-500.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="fonts/inter-500.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="assets/ice.css?v=20261026a5" />
+    <link rel="stylesheet" href="assets/ice.css?v=20261026a6" />
   </head>
   <body>
     <div id="cqBoot" aria-live="polite">
@@ -69,6 +69,10 @@
           <button class="search-pill widget-pill" id="widgetOpen" type="button" aria-haspopup="dialog" aria-label="修改组件" title="修改组件 · 自定义主页面">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
             <span>组件</span>
+          </button>
+          <button class="search-pill widget-pill" id="factorOpen" type="button" aria-haspopup="dialog" aria-label="因子管理" title="因子管理 · 注册与预览">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 17c3.5 0 3.5-10 7-10s3.5 10 7 10"/></svg>
+            <span>因子</span>
           </button>
           <span class="mode-chip" title="模拟盘模式"><i></i>模拟盘 · SIM</span>
           <span class="conn-pill" title="行情轮询已开启"><i class="breath-dot xs"></i><span>LIVE</span></span>
@@ -314,6 +318,43 @@
       </div>
     </aside>
 
+    <aside class="drawer factor-drawer" id="factorDrawer" role="dialog" aria-modal="true" aria-label="因子管理">
+      <div class="drawer-head">
+        <div>
+          <span class="eyebrow">FACTOR LAB</span>
+          <h2>因子管理</h2>
+        </div>
+        <button class="icon-btn" id="factorClose" type="button" aria-label="关闭因子面板">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="drawer-body">
+        <div class="factor-top">
+          <span id="factorSymbol">—</span>
+          <b class="num" id="factorComposite">—</b>
+        </div>
+        <p class="factor-hint">公式只允许 OHLCV 字段和白名单函数，保存后立即参与综合分计算，全局生效。</p>
+        <div class="factor-list" id="factorList"><div class="agent-loading">正在加载因子…</div></div>
+        <section class="factor-form">
+          <h3 id="factorFormTitle">注册因子</h3>
+          <label class="acct-label">名称<input id="factorName" maxlength="40" placeholder="例如：20 日动量 Z 分" /></label>
+          <label class="acct-label">公式<input id="factorFormula" class="mono" maxlength="600" placeholder="zscore(close, 20)" spellcheck="false" autocomplete="off" /></label>
+          <label class="acct-label">权重<input id="factorWeight" type="number" min="-1" max="1" step="0.05" value="0.5" /></label>
+          <div class="factor-preview" id="factorPreview">预览结果会显示在这里</div>
+          <div class="factor-actions">
+            <button class="btn btn-ghost" id="factorPreviewBtn" type="button">预览</button>
+            <button class="btn btn-ghost" id="factorCancel" type="button" style="display:none">取消编辑</button>
+            <button class="btn btn-primary" id="factorSave" type="button">保存因子</button>
+          </div>
+          <p class="factor-auth" id="factorAuthHint">登录后可注册和修改因子。</p>
+        </section>
+        <details class="factor-help">
+          <summary>可用字段与函数</summary>
+          <div id="factorHelp">正在加载…</div>
+        </details>
+      </div>
+    </aside>
+
     <aside class="drawer account-drawer" id="accountDrawer" role="dialog" aria-modal="true" aria-label="账户与交易所">
       <div class="drawer-head">
         <div>
@@ -350,7 +391,8 @@
 
     <script src="vendor/lightweight-charts.standalone.production.js"></script>
     <script>window.CQ_LIVE = 1;</script>
-    <script src="assets/ice.js?v=20261026a5"></script>
-    <script src="assets/live.js?v=20261026a5"></script>
+    <script src="assets/ice.js?v=20261026a6"></script>
+    <script src="assets/live.js?v=20261026a6"></script>
+    <script src="assets/factors.js?v=20261026a6"></script>
   </body>
 </html>

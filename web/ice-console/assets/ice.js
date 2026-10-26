@@ -774,6 +774,7 @@
     { group: "周期", icon: "1D", label: "1 日", desc: "K 线周期切换为 1D", run: function () { setTf("1D"); } },
     { group: "视图", icon: "⛶", label: "全屏行情图表", desc: "进入无干扰的图表模式", run: toggleFullscreen },
     { group: "视图", icon: "▦", label: "自定义主页面组件", desc: "打开组件抽屉，收纳或恢复面板", run: openWidgets },
+    { group: "视图", icon: "ƒ", label: "因子管理", desc: "注册、预览与启停因子", run: function () { if (window.CQ && CQ.openFactors) CQ.openFactors(); } },
     { group: "账户", icon: "◎", label: "登录 / 注册", desc: "打开账户登录面板", run: function () { if (window.CQ && CQ.openAuth) CQ.openAuth(); } },
     { group: "账户", icon: "◫", label: "账户与交易所", desc: "绑定或断开自己的 OKX 密钥", run: function () { if (window.CQ && CQ.openAccount) CQ.openAccount(); } }
   ];
@@ -832,6 +833,7 @@
   function closeOverlays() {
     el("palette").classList.remove("is-open");
     el("widgetDrawer").classList.remove("is-open");
+    if (el("factorDrawer")) el("factorDrawer").classList.remove("is-open");
     if (el("accountDrawer")) el("accountDrawer").classList.remove("is-open");
     el("scrim").classList.remove("is-open");
   }
@@ -1229,7 +1231,8 @@
     renderTape: renderTape,
     setSymbol: setSymbol,
     setTf: setTf,
-    rebuild: rebuild
+    rebuild: rebuild,
+    closeOverlays: closeOverlays
   };
 
   if (document.readyState === "loading") {

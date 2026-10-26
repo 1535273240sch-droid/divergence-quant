@@ -26,6 +26,7 @@ from dquant.api.routes.account_routes import router as account_router
 from dquant.api.routes.auth_routes import router as auth_router
 from dquant.api.routes.emergency_routes import router as emergency_router
 from dquant.api.routes.exchange_routes import router as exchange_router
+from dquant.api.routes.factor_routes import router as factor_router
 from dquant.api.routes.health_routes import router as health_router
 from dquant.api.routes.market_routes import router as market_router
 from dquant.api.routes.signal_routes import router as signal_router
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(account_router)
+    app.include_router(factor_router)
     app.include_router(signal_router)
     app.include_router(strategy_router)
     app.include_router(emergency_router)

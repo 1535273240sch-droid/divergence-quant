@@ -2615,6 +2615,169 @@ svg {
   box-shadow: inset 0 1px 0 #fff, 0 0 0 2px rgba(5, 150, 105, 0.12);
 }
 
+/* ---------- Factor lab ---------- */
+.factor-drawer {
+  width: min(430px, calc(100vw - 24px));
+}
+.factor-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(66, 62, 52, 0.14);
+  background: rgba(255, 255, 255, 0.5);
+}
+.factor-top span {
+  font-size: 11px;
+  color: var(--slate-500);
+}
+.factor-top b {
+  font-size: 18px;
+  color: var(--ink);
+}
+.factor-hint {
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--slate-400);
+}
+.factor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.factor-row {
+  display: flex;
+  gap: 10px;
+  padding: 10px 11px;
+  border-radius: 11px;
+  border: 1px solid rgba(66, 62, 52, 0.14);
+  background: rgba(255, 255, 255, 0.5);
+}
+.factor-row.is-off {
+  opacity: 0.62;
+}
+.f-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.f-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.f-title b {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.f-title .f-value {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+}
+.f-formula {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--slate-500);
+  word-break: break-all;
+}
+.f-meta {
+  font-size: 9px;
+  color: var(--slate-400);
+}
+.f-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: none;
+}
+.f-btn {
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(66, 62, 52, 0.18);
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 9px;
+  color: var(--slate-600);
+}
+.f-btn:hover {
+  color: var(--ink);
+  border-color: rgba(66, 62, 52, 0.32);
+}
+.f-btn.is-danger {
+  color: var(--bear-deep);
+  border-color: rgba(190, 18, 60, 0.24);
+}
+.factor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(66, 62, 52, 0.14);
+  background: rgba(255, 255, 255, 0.5);
+}
+.factor-form h3 {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.factor-form .mono {
+  font-family: var(--font-mono);
+}
+.factor-preview {
+  min-height: 34px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  border: 1px dashed rgba(66, 62, 52, 0.2);
+  background: rgba(255, 255, 255, 0.65);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--slate-600);
+  word-break: break-all;
+}
+.factor-preview.is-error {
+  color: var(--bear-deep);
+  border-color: rgba(190, 18, 60, 0.3);
+}
+.factor-preview.is-ok {
+  color: var(--bull-deep);
+  border-color: rgba(5, 150, 105, 0.3);
+}
+.factor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.factor-auth {
+  font-size: 10px;
+  color: var(--slate-400);
+}
+.factor-help {
+  font-size: 10px;
+  color: var(--slate-500);
+}
+.factor-help summary {
+  cursor: pointer;
+  color: var(--slate-500);
+}
+.factor-help div {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.7;
+  color: var(--slate-400);
+  word-break: break-all;
+}
+
 /* ---------- Reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   *,
