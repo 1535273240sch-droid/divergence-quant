@@ -22,6 +22,7 @@ from dquant.api.errors import (
     generic_exception_handler,
     validation_exception_handler,
 )
+from dquant.api.routes.account_routes import router as account_router
 from dquant.api.routes.auth_routes import router as auth_router
 from dquant.api.routes.emergency_routes import router as emergency_router
 from dquant.api.routes.exchange_routes import router as exchange_router
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     # 3. 注册业务路由
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(account_router)
     app.include_router(signal_router)
     app.include_router(strategy_router)
     app.include_router(emergency_router)

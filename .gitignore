@@ -38,3 +38,8 @@ web/.vite/
 Thumbs.db
 src/divergencequant.egg-info/  
 *.db  
+
+data/**/*.enc
+data/credentials/
+*.enc
+archive/

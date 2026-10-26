@@ -6,6 +6,8 @@ import time
 
 from fastapi import APIRouter
 
+from dquant.api import live_data
+from dquant.api.auth import OptionalUser
 from dquant.api.schemas import HealthResponse
 
 router = APIRouter(prefix="/api/v1", tags=["监控与健康"])
@@ -23,3 +25,13 @@ async def health_check() -> HealthResponse:
         uptime_seconds=round(now - _start_time, 2),
         timestamp=int(now * 1000),
     )
+
+
+@router.get("/overview", summary="引擎运行概览（数据新鲜度 / 池子 / 计数）")
+async def engine_overview(user: OptionalUser) -> dict:
+    """返回引擎库的实时概览，供前端顶栏与状态条展示真实运行状态。"""
+
+    del user
+    data = live_data.overview()
+    data["api_uptime_seconds"] = round(time.time() - _start_time, 2)
+    return data

@@ -24,6 +24,7 @@ import random
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -43,7 +44,7 @@ from dquant.core.universe import UniverseConfig, screen_universe
 from dquant.data.candles import utc_now_ms
 from dquant.data.collector import AsyncAdapterRunner, update_incremental
 from dquant.data.store import load_candles_between, upsert_candles
-from dquant.db.models import Base
+from dquant.db.models import Base, RiskDecisionModel, StrategySignalModel
 from dquant.execution.okx_gateway import OkxGateway
 from dquant.execution.oms import OMS, ExecutionConfig
 from dquant.execution.ports import BalanceSnapshot, OrderRequest, ProtectionRequest
@@ -691,8 +692,48 @@ class TradingEngine:
                 signal.strategy_name, signal.inst_id, signal.action.value,
                 decision.approved, decision.rule, decision.qty,
             )
+            self._persist_signal(signal, decision)
             if decision.approved and decision.qty > 0 and not self.options.dry_run:
                 await self._submit_order(signal, decision)
+
+    def _persist_signal(self, signal, decision) -> None:  # noqa: ANN001
+        """把策略信号与风控裁决落库，供 API / 前端读取（幂等 upsert）。"""
+
+        created_at = datetime.fromtimestamp(signal.created_ts_ms / 1000, tz=UTC)
+        try:
+            with self._session_factory() as session:
+                session.merge(
+                    StrategySignalModel(
+                        id=signal.signal_id,
+                        strategy=signal.strategy_name,
+                        inst_id=signal.inst_id,
+                        side=signal.side.value,
+                        action=signal.action.value,
+                        price=signal.price,
+                        stop_loss=signal.stop_loss,
+                        take_profits=[
+                            {"price": str(tp.price), "fraction": str(tp.fraction)}
+                            for tp in signal.take_profits
+                        ],
+                        reason=signal.reason,
+                        status="PENDING" if decision.approved else "REJECTED",
+                        created_at=created_at,
+                    )
+                )
+                session.merge(
+                    RiskDecisionModel(
+                        id=f"{signal.signal_id}:risk",
+                        signal_id=signal.signal_id,
+                        approved=decision.approved,
+                        rule=decision.rule,
+                        detail=decision.detail,
+                        qty=decision.qty,
+                        created_at=created_at,
+                    )
+                )
+                session.commit()
+        except Exception as exc:  # noqa: BLE001 - 落库失败不得中断交易主链路
+            logger.warning("信号落库失败 %s: %s", signal.signal_id, exc)
 
     async def _submit_order(self, signal, decision) -> None:  # noqa: ANN001
         instrument = self.instruments[signal.inst_id]

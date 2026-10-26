@@ -270,3 +270,27 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[dict[str, Any], Depends(get_current_user)]
+
+
+async def get_optional_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)] = None,
+) -> dict[str, Any] | None:
+    """只读接口专用：带了合法令牌就解析出用户，没带或无效则返回 None。
+
+    这样行情、K 线、盘口、信号列表这类公开数据不需要登录即可查看，
+    而写操作（下单确认、紧急熔断、凭证写入）仍然强制 ``CurrentUser``。
+    """
+
+    if credentials is None or not credentials.credentials:
+        return None
+    try:
+        payload = decode_access_token(credentials.credentials)
+    except Exception:  # noqa: BLE001 - 无效令牌按匿名处理，不阻断只读访问
+        return None
+    username = payload.get("sub")
+    if not username:
+        return None
+    return {"username": username, "role": payload.get("role", "admin")}
+
+
+OptionalUser = Annotated[dict[str, Any] | None, Depends(get_optional_user)]

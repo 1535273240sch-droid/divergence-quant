@@ -38,8 +38,11 @@ def test_health_probe(client: TestClient) -> None:
 
 
 def test_unauthenticated_access_blocked(client: TestClient) -> None:
-    """测试未携带 Bearer 令牌访问受保护路由被 401 拦截。"""
-    res = client.get("/api/v1/signals/pending")
+    """只读行情/信号公开；写操作（下单、熔断）仍需 Bearer 令牌，未带则 401。"""
+    assert client.get("/api/v1/signals/pending").status_code == 200
+    assert client.get("/api/v1/market/candidates").status_code == 200
+
+    res = client.post("/api/v1/emergency/stop-open")
     assert res.status_code == 401
     err = res.json()
     assert err["code"] == "UNAUTHORIZED"

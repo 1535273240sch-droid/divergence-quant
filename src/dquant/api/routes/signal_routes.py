@@ -16,8 +16,9 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from dquant.api import live_data
 from dquant.api.audit import AuditService
-from dquant.api.auth import CurrentUser, confirmation_token_manager
+from dquant.api.auth import CurrentUser, OptionalUser, confirmation_token_manager
 from dquant.api.errors import APIException, NotFoundException
 from dquant.api.schemas import (
     ConfirmOrderRequest,
@@ -44,20 +45,65 @@ def populate_mock_signal(signal_data: dict[str, Any]) -> None:
 
 
 @router.get("/pending", response_model=list[PendingSignalItem], summary="获取待确认交易信号列表")
-async def list_pending_signals(user: CurrentUser) -> list[PendingSignalItem]:
+async def list_pending_signals(user: OptionalUser) -> list[PendingSignalItem]:
     """获取系统当前待人工确认的信号列表。
 
+    数据来源：引擎库 ``strategy_signals``（status=PENDING）与进程内注入池的并集。
     每个信号都会动态挂载一份带有数字签名的一次性 confirmation_token。
     """
     now = time.time()
     results: list[PendingSignalItem] = []
 
+    # 1) 引擎落库的真实待确认信号
+    for row in live_data.pending_signals():
+        sig_id = row["signal_id"]
+        if sig_id in _pending_signals_store:
+            continue
+        try:
+            signal_side = SignalSide(row["side"])
+            signal_action = SignalAction(row["action"])
+        except ValueError:
+            continue
+        created_dt = row.get("created_at")
+        created_ms = (
+            int(created_dt.timestamp() * 1000)
+            if hasattr(created_dt, "timestamp")
+            else int(now * 1000)
+        )
+        tps = [
+            TakeProfitItem(price=Decimal(str(tp["price"])), fraction=Decimal(str(tp["fraction"])))
+            for tp in (row.get("take_profits") or [])
+            if isinstance(tp, dict) and "price" in tp and "fraction" in tp
+        ]
+        results.append(
+            PendingSignalItem(
+                signal_id=sig_id,
+                inst_id=row["inst_id"],
+                side=signal_side,
+                action=signal_action,
+                entry_type=OrderType.LIMIT,
+                price=Decimal(str(row["price"])),
+                stop_loss=Decimal(str(row["stop_loss"])) if row["stop_loss"] is not None else None,
+                take_profits=tps,
+                reason=row["reason"],
+                strategy_name=row["strategy_name"],
+                score=0.0,
+                created_ts_ms=created_ms,
+                expires_at_ts_ms=created_ms + 900_000,
+                confirmation_token=confirmation_token_manager.create_token(sig_id, now=now),
+                ai_comment=None,
+                ai_action=None,
+            )
+        )
+
+    # 2) 进程内注入池（联调 / 测试用）
     for sig_id, data in list(_pending_signals_store.items()):
         if data.get("status") != "PENDING":
             continue
 
         created_ms = data.get("created_ts_ms", int(now * 1000))
         expires_ms = data.get("expires_at_ts_ms", created_ms + 900_000)
+
 
         # 生成一次性确认令牌
         token = confirmation_token_manager.create_token(sig_id, now=now)
@@ -91,7 +137,7 @@ async def list_pending_signals(user: CurrentUser) -> list[PendingSignalItem]:
 
 
 @router.get("/{signal_id}", response_model=PendingSignalItem, summary="获取单个信号详情")
-async def get_signal_detail(signal_id: str, user: CurrentUser) -> PendingSignalItem:
+async def get_signal_detail(signal_id: str, user: OptionalUser) -> PendingSignalItem:
     """获取指定信号的详细信息。仅读取，不产生任何交易副作用。"""
     data = _pending_signals_store.get(signal_id)
     if not data:

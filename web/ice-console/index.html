@@ -3,18 +3,25 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#F5F0EA" />
+    <meta name="theme-color" content="#FAF9F6" />
     <title>CHRONO QUANT · 冰透银白量化控制台</title>
-    <meta name="description" content="ARCH-SPEC-2026.1 冰透银白毛玻璃机构级量化交易控制台" />
+    <meta name="description" content="CHRONO QUANT · 实时行情、信号确认与多用户账户控制台" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23dbeafe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)' stroke='%23cbd5e1'/%3E%3Ctext x='16' y='21' font-family='Arial' font-size='11' font-weight='700' fill='%230f172a' text-anchor='middle'%3ECQ%3C/text%3E%3C/svg%3E"
     />
     <link rel="preload" href="fonts/jetbrains-mono-500.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="fonts/inter-500.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="assets/ice.css" />
+    <link rel="stylesheet" href="assets/ice.css?v=20261026a5" />
   </head>
   <body>
+    <div id="cqBoot" aria-live="polite">
+      <div class="cql-bootbox">
+        <span class="cql-bootmark">CQ</span>
+        <b>CHRONO QUANT</b>
+        <span class="cql-bootline"><i></i>正在连接行情…</span>
+      </div>
+    </div>
     <div class="ambient" aria-hidden="true">
       <span class="ambient-orb orb-a"></span>
       <span class="ambient-orb orb-b"></span>
@@ -35,28 +42,21 @@
           </span>
         </a>
 
-        <nav class="main-nav" aria-label="主导航">
-          <button class="nav-item is-active" type="button" aria-current="page">指挥台</button>
-          <button class="nav-item" type="button" data-demo-nav="策略矩阵">策略矩阵<span class="nav-count">4</span></button>
-          <button class="nav-item" type="button" data-demo-nav="风险审计">风险审计<i class="nav-alert"></i></button>
-          <button class="nav-item" type="button" data-demo-nav="执行日志">执行日志</button>
-        </nav>
-
         <div class="top-tickers" id="topTickers" aria-label="行情快览">
           <button class="tick is-active" type="button" data-symbol="BTC">
             <span class="tick-sym">BTC</span>
-            <span class="tick-price num" data-tick-price="BTC">113,264.30</span>
-            <span class="tick-chg num up" data-tick-chg="BTC">+1.84%</span>
+            <span class="tick-price num" data-tick-price="BTC">—</span>
+            <span class="tick-chg num up" data-tick-chg="BTC">—</span>
           </button>
           <button class="tick" type="button" data-symbol="ETH">
             <span class="tick-sym">ETH</span>
-            <span class="tick-price num" data-tick-price="ETH">4,186.55</span>
-            <span class="tick-chg num up" data-tick-chg="ETH">+0.92%</span>
+            <span class="tick-price num" data-tick-price="ETH">—</span>
+            <span class="tick-chg num up" data-tick-chg="ETH">—</span>
           </button>
           <button class="tick" type="button" data-symbol="SOL">
             <span class="tick-sym">SOL</span>
-            <span class="tick-price num" data-tick-price="SOL">212.84</span>
-            <span class="tick-chg num up" data-tick-chg="SOL">+3.20%</span>
+            <span class="tick-price num" data-tick-price="SOL">—</span>
+            <span class="tick-chg num up" data-tick-chg="SOL">—</span>
           </button>
         </div>
 
@@ -66,8 +66,13 @@
             <span>搜索 / 命令</span>
             <kbd>⌘K</kbd>
           </button>
+          <button class="search-pill widget-pill" id="widgetOpen" type="button" aria-haspopup="dialog" aria-label="修改组件" title="修改组件 · 自定义主页面">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+            <span>组件</span>
+          </button>
           <span class="mode-chip" title="模拟盘模式"><i></i>模拟盘 · SIM</span>
-          <span class="conn-pill" title="WebSocket 行情延迟"><i class="breath-dot xs"></i><span class="num">12</span><em>ms</em></span>
+          <span class="conn-pill" title="行情轮询已开启"><i class="breath-dot xs"></i><span>LIVE</span></span>
+          <button class="search-pill login-pill" id="loginBtn" type="button">登录 / 注册</button>
           <button class="avatar" type="button" aria-label="账户 Q">Q</button>
         </div>
       </header>
@@ -76,154 +81,70 @@
       <main class="console-grid">
         <!-- ---------- LEFT: STRATEGY MATRIX ---------- -->
         <section class="col col-left" aria-label="策略矩阵">
-          <section class="panel nav-panel">
+          <section class="panel nav-panel" data-widget="nav">
             <header class="panel-head">
               <h2 class="panel-title">账户净值 <span class="kicker">NAV</span></h2>
-              <span class="chip chip-up num" id="navChange">+1.24%</span>
+              <span class="chip chip-up num" id="navChange">—</span>
             </header>
             <div class="nav-body">
               <div class="nav-figure">
-                <span class="num" id="navValue">2,847,193.62</span>
+                <span class="num" id="navValue">—</span>
                 <span class="unit">USDT</span>
               </div>
               <div class="nav-sub">
                 <span>今日盈亏</span>
-                <b class="num up">+34,672.18</b>
+                <b class="num up">—</b>
                 <span class="dot-sep"></span>
                 <span>可用</span>
-                <b class="num">1,842,090.40</b>
+                <b class="num">—</b>
               </div>
               <div class="nav-spark">
                 <svg id="navSpark" viewBox="0 0 300 54" preserveAspectRatio="none" aria-hidden="true"></svg>
               </div>
               <div class="nav-foot">
-                <div><span class="micro">最大回撤</span><b class="num down">-3.21%</b></div>
-                <div><span class="micro">保证金率</span><b class="num">35.2%</b></div>
-                <div><span class="micro">风险额度</span><b class="num">41%</b></div>
+                <div><span class="micro">最大回撤</span><b class="num down">—</b></div>
+                <div><span class="micro">保证金率</span><b class="num">—</b></div>
+                <div><span class="micro">风险额度</span><b class="num">—</b></div>
               </div>
             </div>
           </section>
 
-          <section class="panel agents-panel">
+          <section class="panel agents-panel" data-widget="matrix">
             <header class="panel-head">
               <h2 class="panel-title">策略矩阵 <span class="kicker">AGENT MATRIX</span></h2>
-              <span class="panel-meta"><i class="breath-dot sm"></i><span class="num" id="activeAgentCount">3</span> ACTIVE</span>
+              <span class="panel-meta"><i class="breath-dot sm"></i><span class="num" id="activeAgentCount">0</span> ACTIVE</span>
             </header>
-            <div class="agent-list" id="agentList">
-              <article class="agent" data-agent="cq-01">
-                <div class="agent-top">
-                  <i class="breath-dot" aria-hidden="true"></i>
-                  <span class="agent-name">CQ-01 · 趋势跟随</span>
-                  <span class="agent-state">RUNNING</span>
-                  <button class="agent-pause" type="button" aria-label="暂停 CQ-01" title="暂停 / 恢复策略">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg>
-                  </button>
-                </div>
-                <div class="agent-mid">
-                  <span class="agent-pair">BTC/USDT <em>PERP</em></span>
-                  <span class="dir dir-long">LONG 3×</span>
-                  <svg class="agent-spark" data-spark="cq-01" viewBox="0 0 64 20" preserveAspectRatio="none" aria-hidden="true"></svg>
-                </div>
-                <div class="agent-metrics">
-                  <span><em>SHARPE</em><b class="num">2.41</b></span>
-                  <span><em>ANNUAL</em><b class="num up">+38.2%</b></span>
-                  <span><em>MAX DD</em><b class="num down">-6.1%</b></span>
-                </div>
-              </article>
-
-              <article class="agent" data-agent="cq-02">
-                <div class="agent-top">
-                  <i class="breath-dot" aria-hidden="true"></i>
-                  <span class="agent-name">CQ-02 · 背离套利</span>
-                  <span class="agent-state">RUNNING</span>
-                  <button class="agent-pause" type="button" aria-label="暂停 CQ-02" title="暂停 / 恢复策略">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg>
-                  </button>
-                </div>
-                <div class="agent-mid">
-                  <span class="agent-pair">ETH/USDT <em>PERP</em></span>
-                  <span class="dir dir-short">SHORT 2×</span>
-                  <svg class="agent-spark" data-spark="cq-02" viewBox="0 0 64 20" preserveAspectRatio="none" aria-hidden="true"></svg>
-                </div>
-                <div class="agent-metrics">
-                  <span><em>SHARPE</em><b class="num">1.87</b></span>
-                  <span><em>ANNUAL</em><b class="num up">+24.6%</b></span>
-                  <span><em>MAX DD</em><b class="num down">-4.8%</b></span>
-                </div>
-              </article>
-
-              <article class="agent" data-agent="cq-03">
-                <div class="agent-top">
-                  <i class="breath-dot" aria-hidden="true"></i>
-                  <span class="agent-name">CQ-03 · 波动率网格</span>
-                  <span class="agent-state">RUNNING</span>
-                  <button class="agent-pause" type="button" aria-label="暂停 CQ-03" title="暂停 / 恢复策略">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg>
-                  </button>
-                </div>
-                <div class="agent-mid">
-                  <span class="agent-pair">SOL/USDT <em>PERP</em></span>
-                  <span class="dir dir-long">LONG 2×</span>
-                  <svg class="agent-spark" data-spark="cq-03" viewBox="0 0 64 20" preserveAspectRatio="none" aria-hidden="true"></svg>
-                </div>
-                <div class="agent-metrics">
-                  <span><em>SHARPE</em><b class="num">2.96</b></span>
-                  <span><em>ANNUAL</em><b class="num up">+51.4%</b></span>
-                  <span><em>MAX DD</em><b class="num down">-8.2%</b></span>
-                </div>
-              </article>
-
-              <article class="agent is-paused" data-agent="cq-04">
-                <div class="agent-top">
-                  <i class="breath-dot" aria-hidden="true"></i>
-                  <span class="agent-name">CQ-04 · 资金费率基差</span>
-                  <span class="agent-state">PAUSED</span>
-                  <button class="agent-pause" type="button" aria-label="恢复 CQ-04" title="暂停 / 恢复策略">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5-11-6.5Z"/></svg>
-                  </button>
-                </div>
-                <div class="agent-mid">
-                  <span class="agent-pair">BTC/USDT <em>PERP</em></span>
-                  <span class="dir dir-flat">NEUTRAL 1×</span>
-                  <svg class="agent-spark" data-spark="cq-04" viewBox="0 0 64 20" preserveAspectRatio="none" aria-hidden="true"></svg>
-                </div>
-                <div class="agent-metrics">
-                  <span><em>SHARPE</em><b class="num">1.12</b></span>
-                  <span><em>ANNUAL</em><b class="num up">+9.8%</b></span>
-                  <span><em>MAX DD</em><b class="num down">-2.4%</b></span>
-                </div>
-              </article>
-            </div>
+            <div class="agent-list" id="agentList"><div class="agent-loading">正在加载选币结果…</div></div>
           </section>
 
-          <section class="panel exposure-panel">
+          <section class="panel exposure-panel" data-widget="exposure">
             <header class="panel-head">
               <h2 class="panel-title">组合敞口 <span class="kicker">EXPOSURE</span></h2>
-              <span class="chip chip-flat num">净敞口 +24.8%</span>
+              <span class="chip chip-flat num">净敞口 —</span>
             </header>
             <div class="exposure-body">
               <div class="exp-labels">
-                <span><i class="mark-dot long"></i>多头 <b class="num">62.4%</b></span>
-                <span><i class="mark-dot short"></i>空头 <b class="num">37.6%</b></span>
+                <span><i class="mark-dot long"></i>多头 <b class="num">0.0%</b></span>
+                <span><i class="mark-dot short"></i>空头 <b class="num">0.0%</b></span>
               </div>
-              <div class="exp-bar" role="img" aria-label="多头敞口 62.4%，空头敞口 37.6%">
-                <span class="exp-long" style="width: 62.4%"></span>
-                <span class="exp-short" style="width: 37.6%"></span>
+              <div class="exp-bar" role="img" aria-label="多头敞口 0%，空头敞口 0%">
+                <span class="exp-long" style="width: 0%"></span>
+                <span class="exp-short" style="width: 0%"></span>
                 <i class="exp-tick"></i>
               </div>
               <div class="exp-stats">
-                <div><span class="micro">平均杠杆</span><b class="num">2.4×</b></div>
-                <div><span class="micro">保证金占用</span><b class="num">35.2%</b></div>
-                <div><span class="micro">风险额度</span><b class="num">41%</b></div>
+                <div><span class="micro">平均杠杆</span><b class="num">—</b></div>
+                <div><span class="micro">保证金占用</span><b class="num">—</b></div>
+                <div><span class="micro">风险额度</span><b class="num">—</b></div>
               </div>
-              <div class="risk-track"><span style="width: 41%"></span><em>距熔断 59%</em></div>
+              <div class="risk-track"><span style="width: 0%"></span><em>未开仓</em></div>
             </div>
           </section>
         </section>
 
         <!-- ---------- CENTER: MARKET CORE ---------- -->
         <section class="col col-center" aria-label="行情核心">
-          <section class="panel chart-panel" id="chartPanel">
+          <section class="panel chart-panel" id="chartPanel" data-widget="chart">
             <header class="chart-head">
               <div class="chart-ident">
                 <div class="sym-line">
@@ -234,17 +155,17 @@
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                     </button>
                     <div class="sym-menu" id="symMenu" role="menu" aria-label="切换标的">
-                      <button class="sym-option is-active" type="button" data-symbol="BTC" role="menuitem"><span><i class="sym-bullet">B</i>BTC/USDT</span><b class="num" data-menu-price="BTC">113,264.30</b></button>
-                      <button class="sym-option" type="button" data-symbol="ETH" role="menuitem"><span><i class="sym-bullet">E</i>ETH/USDT</span><b class="num" data-menu-price="ETH">4,186.55</b></button>
-                      <button class="sym-option" type="button" data-symbol="SOL" role="menuitem"><span><i class="sym-bullet">S</i>SOL/USDT</span><b class="num" data-menu-price="SOL">212.84</b></button>
+                      <button class="sym-option is-active" type="button" data-symbol="BTC" role="menuitem"><span><i class="sym-bullet">B</i>BTC/USDT</span><b class="num" data-menu-price="BTC">—</b></button>
+                      <button class="sym-option" type="button" data-symbol="ETH" role="menuitem"><span><i class="sym-bullet">E</i>ETH/USDT</span><b class="num" data-menu-price="ETH">—</b></button>
+                      <button class="sym-option" type="button" data-symbol="SOL" role="menuitem"><span><i class="sym-bullet">S</i>SOL/USDT</span><b class="num" data-menu-price="SOL">—</b></button>
                     </div>
                   </div>
                   <span class="perp-tag">PERP · OKX</span>
                 </div>
                 <div class="price-row">
-                  <span class="chart-price num" id="chartPrice">113,264.30</span>
-                  <span class="chip chip-up num" id="chartChange">+1.84%</span>
-                  <span class="price-cny" id="priceCny">≈ ¥807,930.12</span>
+                  <span class="chart-price num" id="chartPrice">—</span>
+                  <span class="chip chip-up num" id="chartChange">—</span>
+                  <span class="price-cny" id="priceCny">≈ ¥—</span>
                 </div>
               </div>
               <div class="chart-controls">
@@ -265,17 +186,17 @@
             </header>
 
             <div class="chart-stats">
-              <div class="chart-stat"><em>24H HIGH</em><b class="num" id="statHigh">114,982.10</b></div>
-              <div class="chart-stat"><em>24H LOW</em><b class="num" id="statLow">109,421.80</b></div>
-              <div class="chart-stat"><em>24H VOL</em><b class="num" id="statVol">38.42B</b></div>
-              <div class="chart-stat"><em>FUNDING</em><b class="num" id="statFunding">+0.0100%</b></div>
+              <div class="chart-stat"><em>24H HIGH</em><b class="num" id="statHigh">—</b></div>
+              <div class="chart-stat"><em>24H LOW</em><b class="num" id="statLow">—</b></div>
+              <div class="chart-stat"><em>24H VOL</em><b class="num" id="statVol">—</b></div>
+              <div class="chart-stat"><em>FUNDING</em><b class="num" id="statFunding">—</b></div>
             </div>
 
             <div class="chart-stage">
               <div class="chart-watermark" aria-hidden="true"><span id="wmSymbol">BTC</span><em>PERP · 4H</em></div>
               <div class="chart-legend" id="chartLegend">
                 <span class="lg-item"><i style="--c: #0f766e"></i>MA7 <b class="num" id="ma7v">—</b></span>
-                <span class="lg-item"><i style="--c: #8a7a68"></i>MA25 <b class="num" id="ma25v">—</b></span>
+                <span class="lg-item"><i style="--c: #6d5c49"></i>MA25 <b class="num" id="ma25v">—</b></span>
                 <span class="lg-item"><i style="--c: #b45309"></i>MA99 <b class="num" id="ma99v">—</b></span>
                 <span class="lg-ohlc" id="ohlcReadout">O <b>—</b> H <b>—</b> L <b>—</b> C <b>—</b></span>
               </div>
@@ -283,27 +204,27 @@
             </div>
           </section>
 
-          <section class="panel signal-panel">
+          <section class="panel signal-panel" data-widget="signal">
             <header class="panel-head">
               <h2 class="panel-title">信号验证 <span class="kicker">SIGNAL REVIEW</span></h2>
               <div class="head-chips">
-                <span class="chip chip-warn num" id="pendingCount">2 待确认</span>
+                <span class="chip chip-warn num" id="pendingCount">—</span>
                 <span class="chip chip-up"><i class="breath-dot xs"></i>AI 复审通过</span>
               </div>
             </header>
             <div class="signal-body">
               <div class="signal-info">
                 <div class="signal-title">
-                  <span class="signal-time num">12:00</span>
-                  <span>CQ-01 · BTC/USDT · 4H</span>
-                  <span class="dir dir-long">LONG</span>
+                  <span class="signal-time num">--:--</span>
+                  <span>正在加载信号…</span>
+                  <span class="dir dir-flat">WAIT</span>
                 </div>
-                <div class="signal-sub">MACD 顶背离修复 · 1H 结构突破确认 · 风险预算内</div>
+                <div class="signal-sub">等待引擎推送新的确认信号</div>
                 <div class="signal-metrics">
-                  <span><em>ENTRY</em><b class="num">112,840.5</b></span>
-                  <span><em>SL</em><b class="num down">111,280.0</b></span>
-                  <span><em>TP</em><b class="num up">116,420.0</b></span>
-                  <span><em>CONF</em><b class="num">92%</b></span>
+                  <span><em>ENTRY</em><b class="num">—</b></span>
+                  <span><em>SL</em><b class="num down">—</b></span>
+                  <span><em>TP</em><b class="num up">—</b></span>
+                  <span><em>CONF</em><b class="num">—</b></span>
                 </div>
               </div>
               <div class="signal-actions">
@@ -316,25 +237,25 @@
 
         <!-- ---------- RIGHT: ORDERBOOK + TAPE ---------- -->
         <aside class="col col-right" aria-label="订单与日志">
-          <section class="panel book-panel">
+          <section class="panel book-panel" data-widget="book">
             <header class="panel-head">
               <h2 class="panel-title">订单簿 <span class="kicker">L2 DEPTH</span></h2>
               <span class="panel-meta"><i class="breath-dot sm"></i>REALTIME</span>
             </header>
             <div class="ob-top">
               <span class="ob-sym" id="obSym">BTC/USDT</span>
-              <span class="ob-spread num" id="obSpread">0.10 · 0.0009%</span>
+              <span class="ob-spread num" id="obSpread">—</span>
             </div>
             <div class="ob-cols"><span>价格 · USDT</span><span>数量</span><span>累计</span></div>
             <div class="ob-book" id="obBook">
               <div class="ob-side asks" id="obAsks"></div>
-              <div class="ob-midline"><span class="num" id="obMid">113,264.30</span><span class="ob-midlabel">MID</span></div>
+              <div class="ob-midline"><span class="num" id="obMid">—</span><span class="ob-midlabel">MID</span></div>
               <div class="ob-side bids" id="obBids"></div>
             </div>
-            <div class="ob-foot"><span>买卖比 <b class="num" id="obRatio">1.42</b></span><span>深度 <b class="num" id="obDepth">418.6 BTC</b></span></div>
+            <div class="ob-foot"><span>买卖比 <b class="num" id="obRatio">—</b></span><span>深度 <b class="num" id="obDepth">—</b></span></div>
           </section>
 
-          <section class="panel tape-panel">
+          <section class="panel tape-panel" data-widget="tape">
             <header class="panel-head">
               <h2 class="panel-title">成交流水 <span class="kicker">TAPE</span></h2>
               <span class="panel-meta"><i class="breath-dot sm"></i>毫秒级</span>
@@ -349,22 +270,15 @@
       <!-- ============ STATUS BAR ============ -->
       <footer class="statusbar glass">
         <div class="status-left">
-          <span class="status-item"><i class="breath-dot xs"></i>引擎在线</span>
+          <span class="status-item" id="engineState"><i class="breath-dot xs"></i>引擎连接中</span>
           <span class="status-sep"></span>
-          <span class="status-item"><b class="num" id="runAgents">3</b>/<span class="num">4</span> AGENTS</span>
-          <span class="status-item">WS <b class="num">12ms</b></span>
+          <span class="status-item"><b class="num" id="runAgents">—</b> AGENTS</span>
         </div>
         <div class="status-center">
-          <span class="status-item">BOOK <b class="num" id="statusMid">113,264.30</b></span>
-          <span class="status-item">风险额度
-            <span class="mini-meter"><i style="width: 41%"></i></span>
-            <b class="num">41%</b>
-          </span>
+          <span class="status-item">BOOK <b class="num" id="statusMid">—</b></span>
         </div>
         <div class="status-right">
-          <span class="status-item clock"><b class="num" id="clock">2026-10-25 20:32:41.284</b><em>UTC+8</em></span>
-          <span class="status-sep"></span>
-          <button class="spec-link" id="specOpen" type="button">ARCH-SPEC-2026.1 <span>验收</span></button>
+          <span class="status-item clock"><b class="num" id="clock">—</b><em>UTC+8</em></span>
         </div>
       </footer>
     </div>
@@ -382,51 +296,61 @@
       <div class="palette-foot"><span><kbd>↑↓</kbd> 选择</span><span><kbd>↵</kbd> 执行</span><span><kbd>ESC</kbd> 关闭</span></div>
     </section>
 
-    <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="规范验收">
+
+    <aside class="drawer widget-drawer" id="widgetDrawer" role="dialog" aria-modal="true" aria-label="主页面组件设置">
       <div class="drawer-head">
         <div>
-          <span class="eyebrow">ARCH-SPEC-2026.1 · WARM TUNED</span>
-          <h2>验收基线 · 冰透暖白</h2>
+          <span class="eyebrow">DASHBOARD WIDGETS</span>
+          <h2>主页面组件</h2>
         </div>
-        <button class="icon-btn" id="drawerClose" type="button" aria-label="关闭验收面板">
+        <button class="icon-btn" id="widgetClose" type="button" aria-label="关闭组件设置">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </div>
       <div class="drawer-body">
-        <section class="spec-block">
-          <h3>Design Tokens</h3>
-          <div class="token-grid">
-            <span class="token"><i style="--sw: #fbf8f3"></i><b>Canvas</b><em>#FBF8F3 → #F2ECE4</em></span>
-            <span class="token"><i style="--sw: rgba(255,250,243,.7)"></i><b>Glass</b><em>68–75% · blur 20px</em></span>
-            <span class="token"><i style="--sw: #059669"></i><b>Emerald</b><em>#059669 / #10B981</em></span>
-            <span class="token"><i style="--sw: #e11d48"></i><b>Coral</b><em>#E11D48 / #FB7185</em></span>
-            <span class="token"><i style="--sw: #221d17"></i><b>Ink</b><em>#221D17</em></span>
-            <span class="token"><i style="--sw: rgba(255,251,244,.9)"></i><b>Rim</b><em>rgba(255,251,244,.9)</em></span>
+        <p class="widget-hint">主页面默认只保留关键组件。关掉的组件会收纳在这里，随时点开恢复，数据不会丢。</p>
+        <div class="widget-list" id="widgetList"></div>
+        <button class="btn btn-ghost widget-reset" id="widgetReset" type="button">恢复默认</button>
+      </div>
+    </aside>
+
+    <aside class="drawer account-drawer" id="accountDrawer" role="dialog" aria-modal="true" aria-label="账户与交易所">
+      <div class="drawer-head">
+        <div>
+          <span class="eyebrow">ACCOUNT · OKX DEMO</span>
+          <h2>账户与交易所</h2>
+        </div>
+        <button class="icon-btn" id="accountClose" type="button" aria-label="关闭账户面板">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="drawer-body">
+        <section class="acct-block">
+          <div class="acct-row"><span>当前账户</span><b id="acctUser">未登录</b></div>
+          <div class="acct-row"><span>连接状态</span><b id="acctStatus">未登录</b></div>
+          <div class="acct-row"><span>账户权益</span><b class="num" id="acctBalance">—</b></div>
+        </section>
+        <section class="acct-block">
+          <h3>绑定你的 OKX 模拟盘密钥</h3>
+          <label class="acct-label">API Key<input id="acctKey" autocomplete="off" spellcheck="false" /></label>
+          <label class="acct-label">Secret<input id="acctSecret" type="password" autocomplete="off" /></label>
+          <label class="acct-label">Passphrase<input id="acctPass" type="password" autocomplete="off" /></label>
+          <p class="acct-hint">密钥加密后保存在服务器，仅用于读取你自己的账户；不会回传给前端，也不会写入日志。每个账户的密钥相互隔离。</p>
+          <p class="acct-warn" id="acctWarn">当前站点是 HTTP 连接，浏览器与服务器之间没有加密。正式使用前请配置 HTTPS，再填写真实密钥。</p>
+          <div class="acct-actions">
+            <button class="btn btn-ghost" id="acctDisconnect" type="button" disabled>断开</button>
+            <button class="btn btn-primary" id="acctSave" type="button">保存并测试</button>
           </div>
         </section>
-        <section class="spec-block">
-          <h3>验收清单</h3>
-          <ul class="check-list">
-            <li><i>✓</i><div><b>材质通透度</b><span>68% 玻璃 + 20px backdrop-blur + 85% 顶部高光描边</span></div></li>
-            <li><i>✓</i><div><b>图表性能</b><span>autoSize + ResizeObserver，60 FPS 平滑重绘</span></div></li>
-            <li><i>✓</i><div><b>数字防抖</b><span>JetBrains Mono + tabular-nums 全局锁定</span></div></li>
-            <li><i>✓</i><div><b>状态反馈</b><span>2.4s 呼吸灯 / 300ms 价格微底闪</span></div></li>
-            <li><i>✓</i><div><b>极端分辨率</b><span>1440px / 4K 均保持紧凑，无横向溢出</span></div></li>
-            <li><i>✓</i><div><b>三栏拓扑</b><span>3 / 6 / 3 十二栅格：策略 → 行情 → 订单日志</span></div></li>
-            <li><i>✓</i><div><b>图表调色</b><span>透明底 / 16% 点线网格 / 半透明量能柱沉底</span></div></li>
-            <li><i>✓</i><div><b>反模式自检</b><span>无实色遮盖、无荧光原色、量能独立刻度</span></div></li>
-          </ul>
-        </section>
-        <section class="spec-block spec-note">
-          <h3>研发红线</h3>
-          <p>纯白实色浮层 · 数字抖动 · 量能柱越界 · 荧光污染 — 本页均未触发。</p>
-        </section>
+        <button class="btn btn-ghost acct-logout" id="acctLogout" type="button">退出登录</button>
       </div>
     </aside>
 
     <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
     <script src="vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="assets/ice.js"></script>
+    <script>window.CQ_LIVE = 1;</script>
+    <script src="assets/ice.js?v=20261026a5"></script>
+    <script src="assets/live.js?v=20261026a5"></script>
   </body>
 </html>

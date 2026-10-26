@@ -1,50 +1,59 @@
-"""交易所连接自检路由。"""
+"""交易所连接自检路由（按登录用户隔离）。
+
+每个用户的 OKX 凭证单独加密落盘：
+``data/credentials/<sha256(username)[:32]>.enc``。
+任何接口都不返回密钥明文，也不存在跨用户的全局凭证缓存。
+"""
 
 from __future__ import annotations
 
-import os
+import hashlib
+from pathlib import Path
 
 from fastapi import APIRouter, Response, status
 
 from dquant.adapters.errors import ExchangeError
 from dquant.adapters.okx import OkxAdapter, OkxCredentials, UrllibTransport
+from dquant.api import users as user_store
 from dquant.api.auth import CurrentUser
-from dquant.api.errors import APIException
+from dquant.api.config import load_api_settings
+from dquant.api.errors import APIException, UnauthorizedException
 from dquant.api.schemas import ExchangeConnectionStatus, ExchangeConnectionTestRequest
 from dquant.security import CredentialStore, CredentialStoreError
 
 router = APIRouter(prefix="/api/v1/exchange", tags=["交易所连接"])
-_active_credentials: OkxCredentials | None = None
+_settings = load_api_settings()
+
+
+def ensure_active_user(username: str) -> None:
+    """JWT 可能比账号活得久：访问私有数据前确认账号仍然存在。"""
+
+    if username == _settings.admin_username:
+        return
+    if user_store.get_user(username) is None:
+        raise UnauthorizedException(message="账户不存在或已停用，请重新登录")
 
 
 def _key_hint(value: str) -> str:
     return f"***...{value[-4:]}" if len(value) >= 4 else "******"
 
 
-def _credentials_from_env() -> OkxCredentials | None:
-    values = (
-        os.getenv("OKX_DEMO_API_KEY", "").strip(),
-        os.getenv("OKX_DEMO_API_SECRET", "").strip(),
-        os.getenv("OKX_DEMO_PASSPHRASE", "").strip(),
-    )
-    return OkxCredentials(*values) if all(values) else None
+def credential_path_for(username: str) -> Path:
+    digest = hashlib.sha256(username.encode("utf-8")).hexdigest()[:32]
+    return Path.cwd() / "data" / "credentials" / f"{digest}.enc"
 
 
-def _credential_store() -> CredentialStore | None:
+def user_credential_store(username: str) -> CredentialStore | None:
     try:
-        return CredentialStore()
+        return CredentialStore(path=credential_path_for(username))
     except CredentialStoreError:
-        # 没有共享主密钥时仍允许一次性连接测试，但不落盘保存凭证。
+        # 缺少共享主密钥时不落盘，也不允许持久化凭证。
         return None
 
 
-def _configured_credentials() -> OkxCredentials | None:
-    if _active_credentials is not None:
-        return _active_credentials
-    env_credentials = _credentials_from_env()
-    if env_credentials is not None:
-        return env_credentials
-    store = _credential_store()
+def load_user_credentials(username: str) -> OkxCredentials | None:
+    ensure_active_user(username)
+    store = user_credential_store(username)
     if store is None:
         return None
     try:
@@ -82,45 +91,44 @@ async def _check(credentials: OkxCredentials | None) -> ExchangeConnectionStatus
     )
 
 
-@router.get("/status", response_model=ExchangeConnectionStatus, summary="检查当前 OKX 配置")
+@router.get("/status", response_model=ExchangeConnectionStatus, summary="检查当前用户的 OKX 配置")
 async def exchange_status(user: CurrentUser) -> ExchangeConnectionStatus:
-    del user
-    return await _check(_configured_credentials())
+    return await _check(load_user_credentials(user["username"]))
 
 
-@router.post("/test", response_model=ExchangeConnectionStatus, summary="测试 OKX 密钥")
+@router.post("/test", response_model=ExchangeConnectionStatus, summary="测试并保存当前用户的 OKX 密钥")
 async def test_exchange_connection(
     req: ExchangeConnectionTestRequest,
     user: CurrentUser,
 ) -> ExchangeConnectionStatus:
-    del user
     credentials = OkxCredentials(
         api_key=req.api_key,
         secret=req.api_secret,
         passphrase=req.passphrase,
     )
-    global _active_credentials
     result = await _check(credentials)
     if result.private_api:
-        # 只在当前 API 进程内保留凭证，永不写入响应、日志或仓库。
-        _active_credentials = credentials
-        store = _credential_store()
-        if store is not None:
-            try:
-                store.save(credentials)
-            except CredentialStoreError as exc:
-                raise APIException("CREDENTIAL_STORE_ERROR", str(exc), 503) from exc
+        store = user_credential_store(user["username"])
+        if store is None:
+            raise APIException(
+                "CREDENTIAL_STORE_ERROR",
+                "服务端缺少加密主密钥，无法安全保存凭证",
+                503,
+            )
+        try:
+            store.save(credentials)
+        except CredentialStoreError as exc:
+            raise APIException("CREDENTIAL_STORE_ERROR", str(exc), 503) from exc
     return result
 
 
-@router.delete("/status", status_code=status.HTTP_204_NO_CONTENT, summary="断开当前 OKX 私有连接")
+@router.delete(
+    "/status", status_code=status.HTTP_204_NO_CONTENT, summary="断开当前用户的 OKX 私有连接"
+)
 async def disconnect_exchange(user: CurrentUser) -> Response:
-    """清除当前 API 进程内存中的临时凭证；服务器环境变量不受影响。"""
+    """删除当前登录用户自己的加密凭证文件，不影响其他用户。"""
 
-    del user
-    global _active_credentials
-    _active_credentials = None
-    store = _credential_store()
+    store = user_credential_store(user["username"])
     if store is not None:
         try:
             store.clear()

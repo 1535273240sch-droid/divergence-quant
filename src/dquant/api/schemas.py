@@ -25,11 +25,22 @@ class BaseSchema(BaseModel):
 
 
 class LoginRequest(BaseSchema):
-    """用户登录请求（密码 + 强制 TOTP 二次验证）。"""
+    """用户登录请求（用户名 + 密码）。"""
 
     username: str = Field(min_length=1, description="用户名")
     password: str = Field(min_length=1, description="登录密码")
-    totp_code: str = Field(min_length=6, max_length=6, description="6 位 TOTP 动态验证码")
+    totp_code: str = Field(
+        default="",
+        max_length=6,
+        description="兼容字段：当前登录流程不再强制 TOTP",
+    )
+
+
+class RegisterRequest(BaseSchema):
+    """用户自助注册请求。"""
+
+    username: str = Field(min_length=3, max_length=32, description="用户名（3–32 位）")
+    password: str = Field(min_length=8, max_length=128, description="密码（至少 8 位）")
 
 
 class TokenResponse(BaseSchema):

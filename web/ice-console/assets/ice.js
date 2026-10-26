@@ -177,7 +177,7 @@
       "cq-01": { seed: 101, drift: 0.0035, color: "#059669" },
       "cq-02": { seed: 207, drift: -0.0025, color: "#e11d48" },
       "cq-03": { seed: 311, drift: 0.0045, color: "#0f766e" },
-      "cq-04": { seed: 419, drift: 0.0006, color: "#a89a89" }
+      "cq-04": { seed: 419, drift: 0.0006, color: "#a29f97" }
     };
     Object.keys(defs).forEach(function (key) {
       var cfg = defs[key];
@@ -307,21 +307,21 @@
     var container = el("chart");
     if (!container) return;
     if (!LWC) {
-      container.innerHTML = '<div style="display:grid;place-items:center;height:100%;font-size:11px;color:#a69887">图表引擎未加载</div>';
+      container.innerHTML = '<div style="display:grid;place-items:center;height:100%;font-size:11px;color:#5d594e">图表引擎未加载</div>';
       return;
     }
     var chart = LWC.createChart(container, {
       autoSize: true,
       layout: {
         background: { type: (LWC.ColorType && LWC.ColorType.Solid) || "solid", color: "transparent" },
-        textColor: "#8d7d6b",
+        textColor: "#46433a",
         fontSize: 11,
         fontFamily: "'JetBrains Mono', monospace",
         attributionLogo: false
       },
       grid: {
-        vertLines: { color: "rgba(139,118,94,0.16)", style: LWC.LineStyle.Dotted },
-        horzLines: { color: "rgba(139,118,94,0.16)", style: LWC.LineStyle.Dotted }
+        vertLines: { color: "rgba(66,62,52,0.24)", style: LWC.LineStyle.Dotted },
+        horzLines: { color: "rgba(66,62,52,0.24)", style: LWC.LineStyle.Dotted }
       },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.1 }, entireTextOnly: true },
       leftPriceScale: { visible: false },
@@ -336,8 +336,8 @@
       },
       crosshair: {
         mode: LWC.CrosshairMode.Normal,
-        vertLine: { color: "rgba(120,101,80,0.42)", width: 1, style: LWC.LineStyle.Dashed, labelBackgroundColor: "#3a3027" },
-        horzLine: { color: "rgba(120,101,80,0.42)", width: 1, style: LWC.LineStyle.Dashed, labelBackgroundColor: "#3a3027" }
+        vertLine: { color: "rgba(108,105,98,0.42)", width: 1, style: LWC.LineStyle.Dashed, labelBackgroundColor: "#34322e" },
+        horzLine: { color: "rgba(108,105,98,0.42)", width: 1, style: LWC.LineStyle.Dashed, labelBackgroundColor: "#34322e" }
       },
       localization: {
         locale: "zh-CN",
@@ -353,7 +353,7 @@
       borderDownColor: "#E11D48",
       wickUpColor: "#059669",
       wickDownColor: "#E11D48",
-      priceLineColor: "rgba(66,48,28,0.25)",
+      priceLineColor: "rgba(58,56,52,0.25)",
       priceLineStyle: LWC.LineStyle.Dotted,
       priceLineWidth: 1,
       priceFormat: { type: "price", precision: 2, minMove: 0.01 }
@@ -370,7 +370,7 @@
 
     var maConf = [
       [7, "#0f766e", 1],
-      [25, "#8a7a68", 1],
+      [25, "#85827a", 1],
       [99, "#b45309", 1]
     ];
     maConf.forEach(function (conf) {
@@ -410,7 +410,7 @@
     var avg = market.candles[Math.max(0, market.candles.length - 26)].close;
     state.priceLine = state.candleSeries.createPriceLine({
       price: roundTo(avg, 2),
-      color: "rgba(100,78,54,0.5)",
+      color: "rgba(84,81,75,0.45)",
       lineWidth: 1,
       lineStyle: LWC.LineStyle.Dashed,
       axisLabelVisible: true,
@@ -463,12 +463,19 @@
     var priceEl = $('[data-tick-price="' + key + '"]');
     var chgEl = $('[data-tick-chg="' + key + '"]');
     var menuEl = $('[data-menu-price="' + key + '"]');
-    if (priceEl) priceEl.textContent = fmt(state.prices[key], 2);
+    var price = state.prices[key];
+    var change = state.changes[key];
+    if (priceEl) priceEl.textContent = price == null ? "—" : fmt(price, 2);
     if (chgEl) {
-      chgEl.textContent = pct(state.changes[key]);
-      chgEl.className = "tick-chg num " + (state.changes[key] >= 0 ? "up" : "down");
+      if (change == null) {
+        chgEl.textContent = "—";
+        chgEl.className = "tick-chg num";
+      } else {
+        chgEl.textContent = pct(change);
+        chgEl.className = "tick-chg num " + (change >= 0 ? "up" : "down");
+      }
     }
-    if (menuEl) menuEl.textContent = fmt(state.prices[key], 2);
+    if (menuEl) menuEl.textContent = price == null ? "—" : fmt(price, 2);
   }
   function updateQuote(price, dir) {
     var s = SYMBOLS[state.symbol];
@@ -556,11 +563,13 @@
     closeSymMenu();
     if (!SYMBOLS[key] || key === state.symbol) return;
     rebuild(key, state.tf);
+    document.dispatchEvent(new CustomEvent("cq:symbolchange", { detail: { symbol: key } }));
     toast("已切换 " + SYMBOLS[key].pair + " · 图表 / 订单簿 / 流水已联动");
   }
   function setTf(tf) {
     if (!TIMEFRAMES[tf] || tf === state.tf) return;
     rebuild(state.symbol, tf);
+    document.dispatchEvent(new CustomEvent("cq:tfchange", { detail: { tf: tf } }));
     toast("K 线周期切换为 " + tf + " · 标记与指标已重算");
   }
 
@@ -586,6 +595,7 @@
     });
   }
   function liveTick() {
+    if (isLiveMode()) return; // 实时模式下由 live.js 驱动，停用演示心跳
     if (!state.market || !state.chart) return;
     var s = SYMBOLS[state.symbol];
     var m = state.market;
@@ -615,6 +625,7 @@
   /* ---------------- order book ---------------- */
   var bookRand = mulberry32(9001);
   function renderBook() {
+    if (isLiveMode()) return; // 实时模式下由 live.js 渲染真实盘口
     var s = SYMBOLS[state.symbol];
     var box = el("obBook");
     if (!box) return;
@@ -712,6 +723,7 @@
   }
   function scheduleNextTrade() {
     setTimeout(function () {
+      if (isLiveMode()) return; // 实时模式下停用模拟成交流
       if (!document.hidden) {
         state.tape.unshift(makeTrade(new Date()));
         if (state.tape.length > 40) state.tape.length = 40;
@@ -750,10 +762,6 @@
     var statusDot = $(".status-left .breath-dot");
     if (statusDot) statusDot.classList.toggle("is-idle", running === 0);
   }
-  function setAllAgents(paused) {
-    $$(".agent").forEach(function (card) { setAgentPaused(card, paused, true); });
-    toast(paused ? "全部 Agent 已暂停 · 心跳冻结，持仓保留" : "全部 Agent 已恢复 · 扫描与心跳恢复", paused);
-  }
 
   /* ---------------- palette ---------------- */
   var COMMANDS = [
@@ -764,10 +772,10 @@
     { group: "周期", icon: "1H", label: "1 小时", desc: "K 线周期切换为 1H", run: function () { setTf("1H"); } },
     { group: "周期", icon: "4H", label: "4 小时", desc: "K 线周期切换为 4H", run: function () { setTf("4H"); } },
     { group: "周期", icon: "1D", label: "1 日", desc: "K 线周期切换为 1D", run: function () { setTf("1D"); } },
-    { group: "策略", icon: "||", label: "暂停全部 Agent", desc: "冻结全部策略进程心跳", run: function () { setAllAgents(true); } },
-    { group: "策略", icon: "▶", label: "恢复全部 Agent", desc: "恢复全部策略进程心跳", run: function () { setAllAgents(false); } },
     { group: "视图", icon: "⛶", label: "全屏行情图表", desc: "进入无干扰的图表模式", run: toggleFullscreen },
-    { group: "规范", icon: "§", label: "ARCH-SPEC 验收面板", desc: "查看材质、数字协议与 8 项验收基线", run: openDrawer }
+    { group: "视图", icon: "▦", label: "自定义主页面组件", desc: "打开组件抽屉，收纳或恢复面板", run: openWidgets },
+    { group: "账户", icon: "◎", label: "登录 / 注册", desc: "打开账户登录面板", run: function () { if (window.CQ && CQ.openAuth) CQ.openAuth(); } },
+    { group: "账户", icon: "◫", label: "账户与交易所", desc: "绑定或断开自己的 OKX 密钥", run: function () { if (window.CQ && CQ.openAccount) CQ.openAccount(); } }
   ];
   function renderPalette(filter) {
     var q = (filter || "").trim().toLowerCase();
@@ -821,15 +829,89 @@
     el("scrim").classList.add("is-open");
     setTimeout(function () { el("paletteInput").focus(); }, 60);
   }
-  function openDrawer() {
-    closeOverlays();
-    el("drawer").classList.add("is-open");
-    el("scrim").classList.add("is-open");
-  }
   function closeOverlays() {
     el("palette").classList.remove("is-open");
-    el("drawer").classList.remove("is-open");
+    el("widgetDrawer").classList.remove("is-open");
+    if (el("accountDrawer")) el("accountDrawer").classList.remove("is-open");
     el("scrim").classList.remove("is-open");
+  }
+
+  /* ---------------- widget layout ---------------- */
+  var WIDGETS = [
+    { id: "nav", label: "账户净值", note: "引擎状态与账户概览", fixed: true, on: true },
+    { id: "matrix", label: "策略矩阵", note: "选币结果与排名", on: true },
+    { id: "chart", label: "K 线图表", note: "行情核心视图", fixed: true, on: true },
+    { id: "signal", label: "信号验证", note: "待确认交易信号", on: true },
+    { id: "exposure", label: "组合敞口", note: "多空占比与风险额度", on: false },
+    { id: "book", label: "订单簿", note: "L2 深度盘口", on: false },
+    { id: "tape", label: "成交流水", note: "逐笔成交明细", on: false }
+  ];
+  var WIDGET_KEY = "cq.widgets.v1";
+
+  function widgetDefaults() {
+    var out = {};
+    WIDGETS.forEach(function (w) { out[w.id] = w.fixed ? true : w.on !== false; });
+    return out;
+  }
+  function widgetState() {
+    var map = widgetDefaults();
+    try {
+      var raw = localStorage.getItem(WIDGET_KEY);
+      if (raw) {
+        var saved = JSON.parse(raw);
+        WIDGETS.forEach(function (w) {
+          if (!w.fixed && saved && typeof saved[w.id] === "boolean") map[w.id] = saved[w.id];
+        });
+      }
+    } catch (e) {}
+    return map;
+  }
+  function saveWidgets(map) {
+    try { localStorage.setItem(WIDGET_KEY, JSON.stringify(map)); } catch (e) {}
+  }
+  function renderWidgetList(map) {
+    var list = el("widgetList");
+    if (!list) return;
+    var html = "";
+    WIDGETS.forEach(function (w) {
+      var on = !!map[w.id];
+      html += '<button type="button" class="widget-row' + (on ? " is-on" : "") + '" data-widget-id="' + w.id + '"' +
+        (w.fixed ? " disabled" : "") + ' aria-pressed="' + on + '">' +
+        '<span class="widget-copy"><b>' + w.label + "</b><small>" + w.note + "</small></span>" +
+        '<span class="widget-switch" aria-hidden="true"></span></button>';
+    });
+    list.innerHTML = html;
+  }
+  function applyWidgets(map) {
+    var current = map || widgetState();
+    WIDGETS.forEach(function (w) {
+      var node = document.querySelector('[data-widget="' + w.id + '"]');
+      if (node) node.classList.toggle("is-widget-off", !current[w.id]);
+    });
+    var grid = document.querySelector(".console-grid");
+    var colRight = document.querySelector(".col-right");
+    var rightOn = !!(colRight && colRight.querySelector(".panel:not(.is-widget-off)"));
+    if (grid) grid.classList.toggle("no-right", !rightOn);
+    renderWidgetList(current);
+    requestAnimationFrame(function () {
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+  function toggleWidget(id) {
+    var target = null;
+    WIDGETS.forEach(function (w) { if (w.id === id) target = w; });
+    if (!target || target.fixed) return;
+    var map = widgetState();
+    map[id] = !map[id];
+    saveWidgets(map);
+    applyWidgets(map);
+  }
+  function openWidgets() {
+    closeOverlays();
+    closeSymMenu();
+    applyWidgets(widgetState());
+    el("widgetDrawer").classList.add("is-open");
+    el("scrim").classList.add("is-open");
   }
   function closeSymMenu() {
     el("symMenu").classList.remove("is-open");
@@ -895,6 +977,7 @@
   }
   var NAV_BASE = 2847193.62 / 1.0124;
   function updateNav() {
+    if (isLiveMode()) return; // 实时模式下净值由真实账户接口驱动
     state.nav += (Math.random() - 0.42) * 460;
     state.navSpark.push(state.nav);
     state.navSpark.shift();
@@ -955,9 +1038,20 @@
     el("rejectBtn").addEventListener("click", function () { resolveSignal("reject"); });
 
     el("paletteOpen").addEventListener("click", openPalette);
-    el("specOpen").addEventListener("click", openDrawer);
-    el("drawerClose").addEventListener("click", closeOverlays);
     el("scrim").addEventListener("click", closeOverlays);
+
+    el("widgetOpen").addEventListener("click", openWidgets);
+    el("widgetClose").addEventListener("click", closeOverlays);
+    el("widgetReset").addEventListener("click", function () {
+      try { localStorage.removeItem(WIDGET_KEY); } catch (e) {}
+      applyWidgets(widgetDefaults());
+      toast("已恢复主页面默认组件");
+    });
+    el("widgetList").addEventListener("click", function (event) {
+      var row = event.target.closest(".widget-row");
+      if (!row || row.disabled) return;
+      toggleWidget(row.getAttribute("data-widget-id"));
+    });
 
     el("paletteInput").addEventListener("input", function (event) {
       renderPalette(event.target.value);
@@ -978,12 +1072,6 @@
       var item = event.target.closest(".palette-item");
       if (!item) return;
       runPaletteItem(Number(item.getAttribute("data-index")));
-    });
-
-    $$("[data-demo-nav]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        toast("「" + btn.getAttribute("data-demo-nav") + "」为演示占位视图 · 本次交付「指挥台」", true);
-      });
     });
 
     document.addEventListener("click", function (event) {
@@ -1045,19 +1133,55 @@
   }
 
   /* ---------------- boot ---------------- */
+  function isLiveMode() {
+    return Boolean(window.CQ_LIVE) || Boolean(window.CQ && window.CQ.isLive);
+  }
+
+  function blankDemo() {
+    // 实时模式下不保留任何演示数值：先全部清成占位符，由 live.js 填真值
+    ["chartPrice", "statusMid", "obMid", "navValue"].forEach(function (id) {
+      var n = el(id);
+      if (n) n.textContent = "—";
+    });
+    var chg = el("chartChange");
+    if (chg) { chg.textContent = "—"; chg.className = "chip num"; }
+    var cny = el("priceCny");
+    if (cny) cny.textContent = "≈ ¥—";
+    var navChg = el("navChange");
+    if (navChg) { navChg.textContent = "—"; navChg.className = "chip num"; }
+    ["statHigh", "statLow", "statVol", "statFunding"].forEach(function (id) {
+      var n = el(id);
+      if (n) n.textContent = "—";
+    });
+    Object.keys(SYMBOLS).forEach(function (k) {
+      var pe = $('[data-tick-price="' + k + '"]');
+      if (pe) pe.textContent = "—";
+      var ce = $('[data-tick-chg="' + k + '"]');
+      if (ce) { ce.textContent = "—"; ce.className = "tick-chg num"; }
+      var me = $('[data-menu-price="' + k + '"]');
+      if (me) me.textContent = "—";
+    });
+  }
+
   function boot() {
+    if (window.CQ_LIVE) {
+      state.prices = { BTC: null, ETH: null, SOL: null };
+      state.changes = {};
+    }
     seedNavSpark();
     drawNavSpark();
     drawAgentSparks();
     initChart();
     rebuild(state.symbol, state.tf);
     bindUI();
+    applyWidgets(widgetState());
     updateAgentCounts();
     tickClock();
     setInterval(tickClock, 100);
     setInterval(liveTick, 1400);
     setInterval(renderBook, 900);
     setInterval(function () {
+      if (isLiveMode()) return; // 实时模式下价格来自 OKX
       Object.keys(SYMBOLS).forEach(function (key) {
         if (key === state.symbol) return;
         state.prices[key] = roundTo(state.prices[key] * (1 + (Math.random() - 0.5) * 0.0005), 2);
@@ -1067,6 +1191,7 @@
     }, 1600);
     setInterval(updateNav, 3200);
     scheduleNextTrade();
+    if (window.CQ_LIVE) blankDemo();
     requestAnimationFrame(function () {
       renderBook();
       renderTape(false);
@@ -1081,6 +1206,31 @@
       });
     }
   }
+
+  /* ---------------- 对外接口（供 live.js 接管数据源） ---------------- */
+  window.CQ = {
+    isLive: false,
+    state: state,
+    SYMBOLS: SYMBOLS,
+    TIMEFRAMES: TIMEFRAMES,
+    el: el,
+    $: $,
+    fmt: fmt,
+    pct: pct,
+    roundTo: roundTo,
+    bjTime: bjTime,
+    toast: toast,
+    applyMarket: applyMarket,
+    updateStats: updateStats,
+    updateQuote: updateQuote,
+    updateSymbolUI: updateSymbolUI,
+    updateTfUI: updateTfUI,
+    updateTickerDom: updateTickerDom,
+    renderTape: renderTape,
+    setSymbol: setSymbol,
+    setTf: setTf,
+    rebuild: rebuild
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
