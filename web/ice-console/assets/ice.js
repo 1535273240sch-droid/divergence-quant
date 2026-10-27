@@ -1055,6 +1055,11 @@
       toggleWidget(row.getAttribute("data-widget-id"));
     });
 
+    var themeBtn = el("themeToggle");
+    if (themeBtn) {
+      themeBtn.addEventListener("click", toggleTheme);
+    }
+
     el("paletteInput").addEventListener("input", function (event) {
       renderPalette(event.target.value);
     });
@@ -1085,6 +1090,11 @@
         event.preventDefault();
         if (el("palette").classList.contains("is-open")) closeOverlays();
         else openPalette();
+        return;
+      }
+      if (key === "t" && !["input", "textarea", "select"].includes((event.target.tagName || "").toLowerCase()) && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        toggleTheme();
         return;
       }
       if (event.key === "Escape") {
@@ -1194,6 +1204,7 @@
     setInterval(updateNav, 3200);
     scheduleNextTrade();
     if (window.CQ_LIVE) blankDemo();
+    applyTheme(localStorage.getItem("cq.theme") || "obsidian");
     requestAnimationFrame(function () {
       renderBook();
       renderTape(false);
@@ -1209,6 +1220,38 @@
     }
   }
 
+  /* ---------------- 主题切换 (极致纯黑 & 冰透银白双模) ---------------- */
+  function applyTheme(theme) {
+    var validTheme = (theme === "ice") ? "ice" : "obsidian";
+    document.documentElement.setAttribute("data-theme", validTheme);
+    try { localStorage.setItem("cq.theme", validTheme); } catch (e) {}
+    var label = el("themeLabel");
+    if (label) label.textContent = validTheme === "obsidian" ? "纯黑战情" : "冰透银白";
+    if (state.chart) {
+      var isDark = validTheme === "obsidian";
+      state.chart.applyOptions({
+        layout: {
+          textColor: isDark ? "#cbd5e1" : "#46433a"
+        },
+        grid: {
+          vertLines: { color: isDark ? "rgba(255,255,255,0.06)" : "rgba(66,62,52,0.24)" },
+          horzLines: { color: isDark ? "rgba(255,255,255,0.06)" : "rgba(66,62,52,0.24)" }
+        },
+        crosshair: {
+          vertLine: { color: isDark ? "rgba(255,255,255,0.3)" : "rgba(108,105,98,0.42)", labelBackgroundColor: isDark ? "#1e293b" : "#34322e" },
+          horzLine: { color: isDark ? "rgba(255,255,255,0.3)" : "rgba(108,105,98,0.42)", labelBackgroundColor: isDark ? "#1e293b" : "#34322e" }
+        }
+      });
+    }
+  }
+
+  function toggleTheme() {
+    var cur = document.documentElement.getAttribute("data-theme") || "obsidian";
+    var next = cur === "obsidian" ? "ice" : "obsidian";
+    applyTheme(next);
+    toast("已切换为：" + (next === "obsidian" ? "纯黑战情 (Obsidian & Liquid Glass)" : "冰透银白 (Ice Glass)"));
+  }
+
   /* ---------------- 对外接口（供 live.js 接管数据源） ---------------- */
   window.CQ = {
     isLive: false,
@@ -1222,6 +1265,8 @@
     roundTo: roundTo,
     bjTime: bjTime,
     toast: toast,
+    applyTheme: applyTheme,
+    toggleTheme: toggleTheme,
     applyMarket: applyMarket,
     updateStats: updateStats,
     updateQuote: updateQuote,

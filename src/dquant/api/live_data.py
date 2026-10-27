@@ -34,17 +34,57 @@ def engine_db_path() -> Path:
 
     raw = (os.getenv("DQUANT_ENGINE_DB") or _DEFAULT_DB).strip() or _DEFAULT_DB
     path = Path(raw)
-    return path if path.is_absolute() else Path.cwd() / path
+    if path.is_absolute():
+        return path
+    cwd_path = Path.cwd() / path
+    if cwd_path.is_file():
+        return cwd_path
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    root_candidate = repo_root / path
+    if root_candidate.is_file():
+        return root_candidate
+    return cwd_path
+
+
+def ensure_engine_db(path: Path | None = None) -> Path:
+    """确保引擎 SQLite 数据库文件存在并初始化全部表结构。"""
+
+    target = path or engine_db_path()
+    if not target.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # 如果旧版根目录存在 engine.db，则优先迁移复制
+        legacy_db = Path.cwd() / "engine.db"
+        if legacy_db.is_file() and legacy_db.resolve() != target.resolve():
+            import shutil
+            try:
+                shutil.copy2(legacy_db, target)
+            except OSError:
+                pass
+        try:
+            from sqlalchemy import create_engine
+            from dquant.db.models import Base
+
+            engine = create_engine(f"sqlite:///{target.as_posix()}", future=True)
+            Base.metadata.create_all(engine)
+            engine.dispose()
+        except Exception:
+            pass
+    return target
 
 
 def _connect() -> sqlite3.Connection | None:
     path = engine_db_path()
     if not path.is_file():
+        ensure_engine_db(path)
+    if not path.is_file():
         return None
     try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=3.0)
+        conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=3.0)
     except sqlite3.Error:
-        return None
+        try:
+            conn = sqlite3.connect(str(path), timeout=3.0)
+        except sqlite3.Error:
+            return None
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -165,9 +205,11 @@ def update_signal_status(signal_id: str, status: str) -> bool:
 
     path = engine_db_path()
     if not path.is_file():
+        ensure_engine_db(path)
+    if not path.is_file():
         return False
     try:
-        conn = sqlite3.connect(path, timeout=3.0)
+        conn = sqlite3.connect(str(path), timeout=3.0)
         try:
             cur = conn.execute(
                 "UPDATE strategy_signals SET status=? WHERE id=? AND status='PENDING'",

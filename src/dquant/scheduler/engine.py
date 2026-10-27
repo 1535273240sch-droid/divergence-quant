@@ -63,7 +63,7 @@ from dquant.strategies.base import BaseStrategy, StrategyContext
 logger = logging.getLogger("dquant.engine")
 
 OKX_PUBLIC_BASE_URL = "https://www.okx.com"
-DEFAULT_DB_PATH = "engine.db"
+DEFAULT_DB_PATH = os.getenv("DQUANT_ENGINE_DB", "data/engine.db")
 
 # OKX 模拟盘凭证的环境变量名 (.env.example 同名)
 OKX_DEMO_KEY_ENV = "OKX_DEMO_API_KEY"
@@ -329,7 +329,18 @@ class TradingEngine:
         self.options = options
         load_env_file()  # .env 中的密钥/连接串注入环境 (不覆盖已有变量)
         self.settings: AppSettings = self._load_settings()
-        self._sync_engine = create_engine(f"sqlite:///{options.db_path}", future=True)
+        db_file = Path(options.db_path)
+        if not db_file.is_absolute():
+            db_file = Path.cwd() / db_file
+        db_file.parent.mkdir(parents=True, exist_ok=True)
+        legacy_db = Path.cwd() / "engine.db"
+        if not db_file.is_file() and legacy_db.is_file() and legacy_db.resolve() != db_file.resolve():
+            import shutil
+            try:
+                shutil.copy2(legacy_db, db_file)
+            except OSError:
+                pass
+        self._sync_engine = create_engine(f"sqlite:///{db_file.as_posix()}", future=True)
         Base.metadata.create_all(self._sync_engine)
         self._session_factory = sessionmaker(self._sync_engine, future=True)
         self._screener_store = ScreenerRunStore(_SessionFactoryShim(self._session_factory))  # type: ignore[arg-type]

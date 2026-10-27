@@ -27,7 +27,17 @@ class CredentialStore:
     """使用共享主密钥保存 OKX 凭证的本地加密文件。"""
 
     def __init__(self, path: str | Path | None = None, master_secret: str | None = None) -> None:
-        secret = master_secret or os.getenv("DQUANT_JWT_SECRET", "").strip()
+        if master_secret is not None:
+            secret = master_secret.strip()
+        else:
+            secret = os.getenv("DQUANT_JWT_SECRET", "").strip()
+            if not secret:
+                jwt_file = Path("data/.jwt_secret")
+                if jwt_file.is_file():
+                    try:
+                        secret = jwt_file.read_text(encoding="utf-8").strip()
+                    except OSError:
+                        pass
         if not secret:
             raise CredentialStoreError("DQUANT_JWT_SECRET 未配置，不能启用加密凭证存储")
         raw_key = hashlib.sha256(secret.encode("utf-8")).digest()

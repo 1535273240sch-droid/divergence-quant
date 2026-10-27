@@ -54,8 +54,80 @@
   font-display: swap;
 }
 
-/* ---------- Tokens ---------- */
-:root {
+/* ---------- Tokens: Default Obsidian (Pure Black & Liquid Glass) ---------- */
+:root,
+html[data-theme="obsidian"] {
+  color-scheme: dark;
+
+  --canvas-1: #000000;
+  --canvas-2: #000000;
+
+  --ink: #ffffff;
+  --ink-soft: #f1f5f9;
+  --slate-700: #e2e8f0;
+  --slate-600: #cbd5e1;
+  --slate-500: #94a3b8;
+  --slate-400: #94a3b8;
+  --slate-300: rgba(203, 213, 225, 0.28);
+
+  --bull: #00f5a0;
+  --bull-bright: #00f5a0;
+  --bull-deep: #00c982;
+  --bull-soft: rgba(0, 245, 160, 0.12);
+  --bull-line: rgba(0, 245, 160, 0.28);
+
+  --bear: #ff4d5e;
+  --bear-bright: #ff4d5e;
+  --bear-deep: #e11d48;
+  --bear-soft: rgba(255, 77, 94, 0.13);
+  --bear-line: rgba(255, 77, 94, 0.28);
+
+  --amber: #ffb547;
+  --amber-deep: #d97706;
+  --amber-soft: rgba(255, 181, 71, 0.12);
+  --amber-line: rgba(255, 181, 71, 0.28);
+
+  --glass: rgba(18, 22, 28, 0.65);
+  --glass-hi: rgba(24, 30, 38, 0.82);
+  --rim: rgba(255, 255, 255, 0.18);
+  --line: rgba(255, 255, 255, 0.10);
+  --line-soft: rgba(255, 255, 255, 0.07);
+
+  --shadow:
+    0 14px 40px rgba(0, 0, 0, 0.65),
+    0 1px 2px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --shadow-float:
+    0 24px 64px rgba(0, 0, 0, 0.82),
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+
+  --blur: 20px;
+  --radius: 20px;
+  --radius-md: 14px;
+  --radius-sm: 9px;
+
+  --font-sans: "Inter", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans CJK SC", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --fs-micro: 9px;
+  --fs-label: 10px;
+  --fs-body: 12px;
+  --fs-data: 13px;
+  --fs-nav: 22px;
+  --fs-price: 27px;
+
+  --gap: 14px;
+  --topbar-h: 60px;
+  --status-h: 30px;
+  --shell-max: 2080px;
+}
+
+/* ---------- Tokens: Ice-Clear Silver-White Mode (原版提交 100% 保持一致) ---------- */
+html[data-theme="ice"] {
+  color-scheme: light;
+
   --canvas-1: #ece5d9;
   --canvas-2: #ddd4c6;
 
@@ -95,25 +167,6 @@
   --shadow-float: 0 24px 60px rgba(58, 56, 52, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 
   --blur: 10px;
-  --radius: 20px;
-  --radius-md: 14px;
-  --radius-sm: 9px;
-
-  --font-sans: "Inter", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
-    "Noto Sans CJK SC", sans-serif;
-  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-
-  --fs-micro: 9px;
-  --fs-label: 10px;
-  --fs-body: 12px;
-  --fs-data: 13px;
-  --fs-nav: 22px;
-  --fs-price: 27px;
-
-  --gap: 14px;
-  --topbar-h: 60px;
-  --status-h: 30px;
-  --shell-max: 2080px;
 }
 
 /* ---------- Reset ---------- */
@@ -352,6 +405,68 @@ svg {
   height: 1px;
   background: linear-gradient(90deg, rgba(253, 252, 250, 0) 0%, var(--rim) 24%, var(--rim) 76%, rgba(253, 252, 250, 0) 100%);
   pointer-events: none;
+}
+
+/* ---------- Theme Overrides: Obsidian (Pure Black & Liquid Glass) ---------- */
+html[data-theme="obsidian"] body {
+  background: #000000;
+}
+html[data-theme="obsidian"] .ambient {
+  background: #000000;
+}
+html[data-theme="obsidian"] .ambient-orb {
+  display: none;
+}
+html[data-theme="obsidian"] .ambient-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  opacity: 0.28;
+}
+html[data-theme="obsidian"] .glass,
+html[data-theme="obsidian"] .panel {
+  background: rgba(18, 22, 28, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+html[data-theme="obsidian"] .topbar {
+  background: rgba(18, 22, 28, 0.78);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+}
+html[data-theme="obsidian"] .statusbar {
+  background: rgba(14, 18, 24, 0.85);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+html[data-theme="obsidian"] .drawer {
+  background: rgba(14, 18, 24, 0.95);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+html[data-theme="obsidian"] .palette {
+  background: rgba(18, 22, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+html[data-theme="obsidian"] .cql-card {
+  background: rgba(18, 22, 28, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+html[data-theme="obsidian"] input,
+html[data-theme="obsidian"] select,
+html[data-theme="obsidian"] textarea {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+html[data-theme="obsidian"] .sym-option:hover,
+html[data-theme="obsidian"] .table-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.theme-pill .theme-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bull);
+  display: inline-block;
+  margin-right: 4px;
 }
 .glass::before {
   content: "";

@@ -9,12 +9,16 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.staticfiles import StaticFiles
 
 from dquant.api.errors import (
     APIException,
@@ -93,6 +97,21 @@ def create_app() -> FastAPI:
             ws_manager.disconnect(websocket)
         except Exception:
             ws_manager.disconnect(websocket)
+
+    # 5. 挂载一体化前端静态资源（web/ice-console）
+    frontend_raw = os.getenv("DQUANT_FRONTEND_DIR", "web/ice-console")
+    frontend_dir = Path(frontend_raw)
+    if not frontend_dir.is_absolute():
+        candidates = [
+            Path.cwd() / frontend_dir,
+            Path(__file__).resolve().parent.parent.parent.parent / frontend_dir,
+        ]
+        for c in candidates:
+            if c.is_dir():
+                frontend_dir = c
+                break
+    if frontend_dir.is_dir():
+        app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
 
     return app
 

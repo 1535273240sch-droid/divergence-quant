@@ -13,6 +13,12 @@
     <link rel="preload" href="fonts/jetbrains-mono-500.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="fonts/inter-500.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="assets/ice.css?v=20261026a6" />
+    <script>
+      (function() {
+        var t = localStorage.getItem('cq.theme') || 'obsidian';
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
   </head>
   <body>
     <div id="cqBoot" aria-live="polite">
@@ -73,6 +79,11 @@
           <button class="search-pill widget-pill" id="factorOpen" type="button" aria-haspopup="dialog" aria-label="因子管理" title="因子管理 · 注册与预览">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 17c3.5 0 3.5-10 7-10s3.5 10 7 10"/></svg>
             <span>因子</span>
+          </button>
+          <button class="search-pill theme-pill" id="themeToggle" type="button" aria-label="切换纯黑战情室或冰透银白主题 (快捷键 T)" title="快捷键 T 切换 极致纯黑 / 冰透银白主题">
+            <span class="theme-dot" aria-hidden="true"></span>
+            <span id="themeLabel">纯黑战情</span>
+            <kbd>T</kbd>
           </button>
           <span class="mode-chip" title="模拟盘模式"><i></i>模拟盘 · SIM</span>
           <span class="conn-pill" title="行情轮询已开启"><i class="breath-dot xs"></i><span>LIVE</span></span>
