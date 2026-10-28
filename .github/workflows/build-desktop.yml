@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - desktop-release
     tags:
       - 'v*'
   workflow_dispatch:
