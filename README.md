@@ -15,6 +15,22 @@ DivergenceQuant 是面向 OKX USDT 永续合约的高性能多币种量化交易
 
 ---
 
+## 🚦 先看这里：你要的是哪一种部署？
+
+**云服务器部署**只有一个答案：`main` 分支的 `src/` + `web/ice-console`（Python 直接运行 + SQLite）。
+👉 详见 [deploy/云服务器部署说明.md](./deploy/云服务器部署说明.md)
+
+| 你想做的事 | 用这个 | 部署到云服务器？ |
+|---|---|---|
+| 在云服务器上跑量化引擎 / Web 控制台 | `src/` + `web/ice-console`，`git clone` 后 `python -m dquant.scheduler.engine` | ✅ **是** |
+| 在 Windows 上双击运行桌面程序 | `desktop_app.py`（或 Actions 产出的 EXE） | ❌ 否 |
+| 起 PostgreSQL / Redis / Grafana 全家桶 | `docker-compose.yml`（未实机验证，代码实际只用 SQLite） | ❌ 否 |
+
+> 版本标记：git tag **`cloud-server`** 永远指向「最新可部署到云服务器的提交」。
+> 更新服务器**只用 `git pull`**，不要用 scp / 压缩包覆盖，否则服务器会永远停在旧的拷贝版本。
+
+---
+
 ## 模块架构全景
 
 ```mermaid

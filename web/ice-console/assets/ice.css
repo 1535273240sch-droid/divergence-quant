@@ -54,8 +54,7 @@
   font-display: swap;
 }
 
-/* ---------- Tokens: Default Obsidian (Pure Black & Liquid Glass) ---------- */
-:root,
+/* ---------- Tokens: Obsidian (Pure Black & Liquid Glass) · 可选主题，非默认 ---------- */
 html[data-theme="obsidian"] {
   color-scheme: dark;
 
@@ -124,7 +123,8 @@ html[data-theme="obsidian"] {
   --shell-max: 2080px;
 }
 
-/* ---------- Tokens: Ice-Clear Silver-White Mode (原版提交 100% 保持一致) ---------- */
+/* ---------- Tokens: Ice-Clear Silver-White Mode · 默认主题（冰透银白） ---------- */
+:root,
 html[data-theme="ice"] {
   color-scheme: light;
 

@@ -3,7 +3,7 @@
 三合一架构:
 1. 嵌入式 SQLite: data/ 目录零配置持久化 (engine.db, users.db, factors.db, .jwt_secret, okx-credentials.enc)
 2. 内置 ASGI 服务: Uvicorn 后台服务线程, 同时托管 FastAPI 核心 API 与 web/ice-console 前端控制台
-3. 原生桌面窗口: PySide6 (Chromium QWebEngineView), 支持纯黑/银白双模主题、系统托盘、量化引擎控制
+3. 原生桌面窗口: PySide6 (Chromium QWebEngineView), 默认冰透银白主题(可选纯黑)、系统托盘、量化引擎控制
 """
 
 from __future__ import annotations
@@ -209,7 +209,8 @@ class MainWindow(QMainWindow):
 
         container = QWidget()
         container.setLayout(layout)
-        container.setStyleSheet("background-color: #000000;")
+        # 窗口底板使用冰透银白主题底色，避免加载瞬间出现黑边
+        container.setStyleSheet("background-color: #ece5d9;")
         self.setCentralWidget(container)
 
         # 快捷键支持
@@ -232,9 +233,9 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(800, lambda: self.web_view.load(QUrl(self.url)))
             else:
                 self.web_view.setHtml(f"""
-                <body style='background:#000;color:#fff;font-family:sans-serif;padding:60px;text-align:center;'>
-                    <h2 style='color:#ff4d5e;margin-bottom:12px;'>前端控制台加载失败</h2>
-                    <p style='color:#94a3b8;margin-bottom:24px;'>服务地址: {self.url}</p>
+                <body style='background:#ece5d9;color:#100f0c;font-family:sans-serif;padding:60px;text-align:center;'>
+                    <h2 style='color:#be123c;margin-bottom:12px;'>前端控制台加载失败</h2>
+                    <p style='color:#5d594e;margin-bottom:24px;'>服务地址: {self.url}</p>
                     <button onclick='window.location.reload()' style='padding:10px 24px;background:#00f5a0;color:#052e16;font-size:14px;font-weight:bold;border:none;border-radius:6px;cursor:pointer;'>刷新页面 (F5)</button>
                 </body>
                 """)

@@ -1204,7 +1204,7 @@
     setInterval(updateNav, 3200);
     scheduleNextTrade();
     if (window.CQ_LIVE) blankDemo();
-    applyTheme(localStorage.getItem("cq.theme") || "obsidian");
+    applyTheme(localStorage.getItem("cq.theme.v2") || "ice", false);
     requestAnimationFrame(function () {
       renderBook();
       renderTape(false);
@@ -1220,11 +1220,13 @@
     }
   }
 
-  /* ---------------- 主题切换 (极致纯黑 & 冰透银白双模) ---------------- */
-  function applyTheme(theme) {
-    var validTheme = (theme === "ice") ? "ice" : "obsidian";
+  /* ---------------- 主题切换 (默认冰透银白，可选极致纯黑) ---------------- */
+  function applyTheme(theme, persist) {
+    var validTheme = (theme === "obsidian") ? "obsidian" : "ice";
     document.documentElement.setAttribute("data-theme", validTheme);
-    try { localStorage.setItem("cq.theme", validTheme); } catch (e) {}
+    if (persist) {
+      try { localStorage.setItem("cq.theme.v2", validTheme); } catch (e) {}
+    }
     var label = el("themeLabel");
     if (label) label.textContent = validTheme === "obsidian" ? "纯黑战情" : "冰透银白";
     if (state.chart) {
@@ -1246,9 +1248,9 @@
   }
 
   function toggleTheme() {
-    var cur = document.documentElement.getAttribute("data-theme") || "obsidian";
+    var cur = document.documentElement.getAttribute("data-theme") || "ice";
     var next = cur === "obsidian" ? "ice" : "obsidian";
-    applyTheme(next);
+    applyTheme(next, true);
     toast("已切换为：" + (next === "obsidian" ? "纯黑战情 (Obsidian & Liquid Glass)" : "冰透银白 (Ice Glass)"));
   }
 
