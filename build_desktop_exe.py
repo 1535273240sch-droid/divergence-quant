@@ -11,6 +11,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 def build():
     root = Path(__file__).resolve().parent
@@ -27,8 +32,9 @@ def build():
         "--noconsole",
         "--clean",
         "--windowed",
-        # 源码路径
+        # 源码路径与依赖收集
         "--paths=src",
+        "--collect-all=dquant",
         # 资源文件打包
         "--add-data=web/ice-console;web/ice-console",
         "--add-data=config;config",
@@ -67,6 +73,12 @@ def build():
         web_dst = dist_dir / "web"
         if web_src.is_dir():
             shutil.copytree(web_src, web_dst, dirs_exist_ok=True)
+
+        # 复制 src 源码包
+        src_dir = root / "src"
+        src_dst = dist_dir / "src"
+        if src_dir.is_dir():
+            shutil.copytree(src_dir, src_dst, dirs_exist_ok=True)
 
         # 复制 config
         cfg_src = root / "config"

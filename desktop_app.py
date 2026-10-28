@@ -29,6 +29,15 @@ if getattr(sys, "frozen", False):
 else:
     ROOT_DIR = Path(__file__).resolve().parent
 
+def log_debug(msg: str) -> None:
+    try:
+        with open(ROOT_DIR / "desktop_debug.log", "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {msg}\n")
+    except Exception:
+        pass
+
+log_debug(f"Process started. PID={os.getpid()}, frozen={getattr(sys, 'frozen', False)}, ROOT_DIR={ROOT_DIR}")
+
 SRC_DIR = ROOT_DIR / "src"
 if SRC_DIR.is_dir() and str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
@@ -116,11 +125,16 @@ class UvicornServerThread(threading.Thread):
         self.error: Exception | None = None
 
     def run(self) -> None:
+        import traceback
+        log_debug(f"UvicornServerThread starting on {self.host}:{self.port}...")
         try:
             import uvicorn
+            log_debug("Uvicorn imported.")
             from dquant.api.app import create_app
+            log_debug("create_app imported.")
 
             app = create_app()
+            log_debug("create_app() succeeded.")
             config = uvicorn.Config(
                 app=app,
                 host=self.host,
@@ -129,9 +143,12 @@ class UvicornServerThread(threading.Thread):
                 access_log=False,
             )
             self.server = uvicorn.Server(config)
+            log_debug("uvicorn.Server.run() starting...")
             self.server.run()
+            log_debug("uvicorn.Server.run() finished.")
         except Exception as e:
             self.error = e
+            log_debug(f"UvicornServerThread EXCEPTION: {traceback.format_exc()}")
 
     def stop(self) -> None:
         if self.server:
@@ -373,18 +390,24 @@ def main() -> int:
     url = f"http://127.0.0.1:{port}/"
     ready = False
     import urllib.request
-    for _ in range(60):
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    log_debug(f"Starting health check probe loop on {url}api/v1/health ...")
+    for i in range(60):
         if server_thread.error:
+            log_debug(f"Server thread error detected at probe {i}: {server_thread.error}")
             break
         time.sleep(0.1)
         try:
             req = urllib.request.Request(f"http://127.0.0.1:{port}/api/v1/health")
-            with urllib.request.urlopen(req, timeout=0.5) as r:
+            with opener.open(req, timeout=0.5) as r:
                 if r.status == 200:
                     ready = True
+                    log_debug(f"Health probe SUCCEEDED at probe {i}!")
                     break
-        except Exception:
+        except Exception as e:
             pass
+
+    log_debug(f"Health probe finished: ready={ready}, error={server_thread.error}")
 
     app = QApplication.instance() or QApplication(sys.argv)
     QNetworkProxy.setApplicationProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
