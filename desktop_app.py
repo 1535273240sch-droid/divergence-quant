@@ -113,21 +113,25 @@ class UvicornServerThread(threading.Thread):
         self.host = host
         self.port = port
         self.server = None
+        self.error: Exception | None = None
 
     def run(self) -> None:
-        import uvicorn
-        from dquant.api.app import create_app
+        try:
+            import uvicorn
+            from dquant.api.app import create_app
 
-        app = create_app()
-        config = uvicorn.Config(
-            app=app,
-            host=self.host,
-            port=self.port,
-            log_level="warning",
-            access_log=False,
-        )
-        self.server = uvicorn.Server(config)
-        self.server.run()
+            app = create_app()
+            config = uvicorn.Config(
+                app=app,
+                host=self.host,
+                port=self.port,
+                log_level="warning",
+                access_log=False,
+            )
+            self.server = uvicorn.Server(config)
+            self.server.run()
+        except Exception as e:
+            self.error = e
 
     def stop(self) -> None:
         if self.server:
@@ -222,9 +226,18 @@ class MainWindow(QMainWindow):
         self.web_view.load(QUrl(self.url))
 
     def on_load_finished(self, ok: bool) -> None:
-        if not ok and self._retry_count < 10:
-            self._retry_count += 1
-            QTimer.singleShot(1000, lambda: self.web_view.load(QUrl(self.url)))
+        if not ok:
+            if self._retry_count < 10:
+                self._retry_count += 1
+                QTimer.singleShot(800, lambda: self.web_view.load(QUrl(self.url)))
+            else:
+                self.web_view.setHtml(f"""
+                <body style='background:#000;color:#fff;font-family:sans-serif;padding:60px;text-align:center;'>
+                    <h2 style='color:#ff4d5e;margin-bottom:12px;'>前端控制台加载失败</h2>
+                    <p style='color:#94a3b8;margin-bottom:24px;'>服务地址: {self.url}</p>
+                    <button onclick='window.location.reload()' style='padding:10px 24px;background:#00f5a0;color:#052e16;font-size:14px;font-weight:bold;border:none;border-radius:6px;cursor:pointer;'>刷新页面 (F5)</button>
+                </body>
+                """)
 
     def center_window(self) -> None:
         screen = QApplication.primaryScreen()
@@ -356,13 +369,35 @@ def main() -> int:
     server_thread = UvicornServerThread("127.0.0.1", port)
     server_thread.start()
 
-    # 等待本地端口就绪
+    # 等待本地 HTTP 服务与 FastAPI 就绪
     url = f"http://127.0.0.1:{port}/"
-    for _ in range(30):
+    ready = False
+    import urllib.request
+    for _ in range(60):
+        if server_thread.error:
+            break
         time.sleep(0.1)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            if s.connect_ex(("127.0.0.1", port)) == 0:
-                break
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/api/v1/health")
+            with urllib.request.urlopen(req, timeout=0.5) as r:
+                if r.status == 200:
+                    ready = True
+                    break
+        except Exception:
+            pass
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    QNetworkProxy.setApplicationProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
+    app.setApplicationName("CHRONO QUANT")
+    app.setQuitOnLastWindowClosed(False)
+
+    if not ready and server_thread.error:
+        QMessageBox.critical(
+            None,
+            "CHRONO QUANT 启动错误",
+            f"后台量化服务启动异常:\n{server_thread.error}\n\n请检查数据配置与系统环境。",
+        )
+        return 1
 
     engine_worker = None
     if args.engine != "none":
@@ -373,11 +408,6 @@ def main() -> int:
         print(">>> [2/3] 已跳过量化引擎启动 (--engine=none)")
 
     print(">>> [3/3] 正在拉起原生桌面终端窗口 (PySide6 Chromium)...")
-    app = QApplication.instance() or QApplication(sys.argv)
-    QNetworkProxy.setApplicationProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
-    app.setApplicationName("CHRONO QUANT")
-    app.setQuitOnLastWindowClosed(False)
-
     window = MainWindow(url, engine_worker, server_thread)
     window.show()
 

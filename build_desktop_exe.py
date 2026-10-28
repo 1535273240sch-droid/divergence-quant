@@ -23,6 +23,7 @@ def build():
         "-m",
         "PyInstaller",
         "--name=DivergenceQuant",
+        "-y",
         "--noconsole",
         "--clean",
         "--windowed",
@@ -58,7 +59,44 @@ def build():
     print(" ".join(args))
     ret = subprocess.run(args)
     if ret.returncode == 0:
-        print("\n[成功] 打包完成！生成文件位于 dist/DivergenceQuant 目录下。")
+        dist_dir = root / "dist" / "DivergenceQuant"
+        print(">>> 正在复制资源与配置到发布目录:", dist_dir)
+        import shutil
+        # 复制 web 静态资源
+        web_src = root / "web"
+        web_dst = dist_dir / "web"
+        if web_src.is_dir():
+            shutil.copytree(web_src, web_dst, dirs_exist_ok=True)
+
+        # 复制 config
+        cfg_src = root / "config"
+        cfg_dst = dist_dir / "config"
+        if cfg_src.is_dir():
+            shutil.copytree(cfg_src, cfg_dst, dirs_exist_ok=True)
+
+        # 复制 data 模板/数据库
+        data_src = root / "data"
+        data_dst = dist_dir / "data"
+        data_dst.mkdir(parents=True, exist_ok=True)
+        if data_src.is_dir():
+            for f in data_src.glob("*"):
+                if f.is_file():
+                    shutil.copy2(f, data_dst / f.name)
+
+        # 复制辅助启动脚本与文档
+        for fname in ["app_icon.ico", "启动量化终端(无黑框).vbs", "桌面端使用指南.md", "start_desktop.bat"]:
+            src_f = root / fname
+            if src_f.is_file():
+                shutil.copy2(src_f, dist_dir / fname)
+
+        # 自动生成绿色压缩包
+        zip_path = root / "dist" / "DivergenceQuant-Windows-x64"
+        print(f">>> 正在打包绿色免安装分发压缩包: {zip_path}.zip ...")
+        shutil.make_archive(str(zip_path), "zip", root_dir=dist_dir.parent, base_dir="DivergenceQuant")
+
+        print("\n[成功] 打包完成！")
+        print(f"独立程序目录: {dist_dir}")
+        print(f"分发压缩包: {zip_path}.zip")
     else:
         print(f"\n[失败] 打包命令退出码: {ret.returncode}")
     return ret.returncode

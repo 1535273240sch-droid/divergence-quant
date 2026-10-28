@@ -9,6 +9,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     name: Build Windows Standalone Executable (.exe)
@@ -30,32 +33,21 @@ jobs:
           pip install -e .
           pip install PySide6 uvicorn fastapi pydantic pyinstaller cryptography pyyaml Pillow
 
-      - name: Build Standalone Executable
+      - name: Build Standalone Executable & Package
         run: |
-          python -m PyInstaller --name=DivergenceQuant --noconsole --clean --windowed --paths=src --add-data "web/ice-console;web/ice-console" --add-data "config;config" desktop_app.py
-
-      - name: Prepare Package Distribution
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "data")) { New-Item -ItemType Directory -Path "data" }
-          Copy-Item -Path "web" -Destination "dist/DivergenceQuant/web" -Recurse -Force
-          Copy-Item -Path "data" -Destination "dist/DivergenceQuant/data" -Recurse -Force
-          Copy-Item -Path "config" -Destination "dist/DivergenceQuant/config" -Recurse -Force
-          Copy-Item -Path "启动量化终端(无黑框).vbs" -Destination "dist/DivergenceQuant/" -ErrorAction SilentlyContinue
-          Copy-Item -Path "桌面端使用指南.md" -Destination "dist/DivergenceQuant/" -ErrorAction SilentlyContinue
-          Compress-Archive -Path "dist/DivergenceQuant/*" -DestinationPath "DivergenceQuant-Windows-x64.zip" -Force
+          python build_desktop_exe.py
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: DivergenceQuant-Windows-x64
-          path: DivergenceQuant-Windows-x64.zip
+          path: dist/DivergenceQuant-Windows-x64.zip
           retention-days: 14
 
       - name: Publish Release Package (on Tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: DivergenceQuant-Windows-x64.zip
+          files: dist/DivergenceQuant-Windows-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
