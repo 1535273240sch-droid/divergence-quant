@@ -24,6 +24,8 @@ reports/generated/
 data/local/
 data/*.enc
 web-server.log
+build/
+dist/
 
 # Frontend
 node_modules/
