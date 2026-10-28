@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -99,18 +100,27 @@ def create_app() -> FastAPI:
             ws_manager.disconnect(websocket)
 
     # 5. 挂载一体化前端静态资源（web/ice-console）
-    frontend_raw = os.getenv("DQUANT_FRONTEND_DIR", "web/ice-console")
-    frontend_dir = Path(frontend_raw)
-    if not frontend_dir.is_absolute():
-        candidates = [
-            Path.cwd() / frontend_dir,
-            Path(__file__).resolve().parent.parent.parent.parent / frontend_dir,
-        ]
-        for c in candidates:
-            if c.is_dir():
-                frontend_dir = c
-                break
-    if frontend_dir.is_dir():
+    frontend_dir: Path | None = None
+    candidates: list[Path] = []
+    if os.getenv("DQUANT_FRONTEND_DIR"):
+        candidates.append(Path(os.environ["DQUANT_FRONTEND_DIR"]))
+    if hasattr(sys, "_MEIPASS"):
+        candidates.append(Path(sys._MEIPASS) / "web" / "ice-console")
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).parent
+        candidates.append(exe_dir / "web" / "ice-console")
+        candidates.append(exe_dir / "_internal" / "web" / "ice-console")
+    candidates.extend([
+        Path.cwd() / "web" / "ice-console",
+        Path(__file__).resolve().parent.parent.parent.parent / "web" / "ice-console",
+        Path(__file__).resolve().parent.parent.parent / "web" / "ice-console",
+    ])
+    for c in candidates:
+        if c and c.is_dir() and (c / "index.html").is_file():
+            frontend_dir = c
+            break
+
+    if frontend_dir is not None:
         app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
 
     return app

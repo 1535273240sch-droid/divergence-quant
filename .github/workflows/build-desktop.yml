@@ -1,0 +1,61 @@
+name: Build Desktop Application (Windows Release)
+
+on:
+  push:
+    branches:
+      - main
+      - desktop-release
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows Standalone Executable (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Build Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install PySide6 uvicorn fastapi pydantic pyinstaller cryptography pyyaml Pillow
+
+      - name: Build Standalone Executable
+        run: |
+          python -m PyInstaller --name=DivergenceQuant --noconsole --clean --windowed --paths=src --add-data "web/ice-console;web/ice-console" --add-data "config;config" desktop_app.py
+
+      - name: Prepare Package Distribution
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "data")) { New-Item -ItemType Directory -Path "data" }
+          Copy-Item -Path "web" -Destination "dist/DivergenceQuant/web" -Recurse -Force
+          Copy-Item -Path "data" -Destination "dist/DivergenceQuant/data" -Recurse -Force
+          Copy-Item -Path "config" -Destination "dist/DivergenceQuant/config" -Recurse -Force
+          Copy-Item -Path "启动量化终端(无黑框).vbs" -Destination "dist/DivergenceQuant/" -ErrorAction SilentlyContinue
+          Copy-Item -Path "桌面端使用指南.md" -Destination "dist/DivergenceQuant/" -ErrorAction SilentlyContinue
+          Compress-Archive -Path "dist/DivergenceQuant/*" -DestinationPath "DivergenceQuant-Windows-x64.zip" -Force
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DivergenceQuant-Windows-x64
+          path: DivergenceQuant-Windows-x64.zip
+          retention-days: 14
+
+      - name: Publish Release Package (on Tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: DivergenceQuant-Windows-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

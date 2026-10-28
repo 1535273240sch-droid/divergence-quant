@@ -18,14 +18,19 @@ import threading
 import time
 from pathlib import Path
 
-# 禁用本地回环代理拦截
+# 禁用本地回环代理拦截，强制直连
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 os.environ["no_proxy"] = "127.0.0.1,localhost"
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-proxy-server"
 
-# 确保 src 目录在 Python 模块查找路径中
-ROOT_DIR = Path(__file__).resolve().parent
+# 确定应用程序真实物理根目录 (处理 PyInstaller 打包环境)
+if getattr(sys, "frozen", False):
+    ROOT_DIR = Path(sys.executable).parent
+else:
+    ROOT_DIR = Path(__file__).resolve().parent
+
 SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
+if SRC_DIR.is_dir() and str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 os.chdir(ROOT_DIR)
 
@@ -48,6 +53,7 @@ os.environ.setdefault("DQUANT_CREDENTIALS_FILE", str(DATA_DIR / "okx-credentials
 
 from PySide6.QtCore import QCoreApplication, QEvent, QTimer, QUrl, Qt
 from PySide6.QtGui import QAction, QBrush, QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
+from PySide6.QtNetwork import QNetworkProxy
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -208,8 +214,17 @@ class MainWindow(QMainWindow):
         # 系统托盘
         self.setup_tray()
 
+        # 加载完成检查与自动重试
+        self._retry_count = 0
+        self.web_view.loadFinished.connect(self.on_load_finished)
+
         # 加载本地前端页面
         self.web_view.load(QUrl(self.url))
+
+    def on_load_finished(self, ok: bool) -> None:
+        if not ok and self._retry_count < 10:
+            self._retry_count += 1
+            QTimer.singleShot(1000, lambda: self.web_view.load(QUrl(self.url)))
 
     def center_window(self) -> None:
         screen = QApplication.primaryScreen()
@@ -359,6 +374,7 @@ def main() -> int:
 
     print(">>> [3/3] 正在拉起原生桌面终端窗口 (PySide6 Chromium)...")
     app = QApplication.instance() or QApplication(sys.argv)
+    QNetworkProxy.setApplicationProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
     app.setApplicationName("CHRONO QUANT")
     app.setQuitOnLastWindowClosed(False)
 
