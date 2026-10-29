@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, HTTPException, Response, status
 
 from dquant.api import live_data
 from dquant.api.audit import AuditService
@@ -204,6 +204,15 @@ async def get_signal_detail(signal_id: str, user: OptionalUser) -> PendingSignal
         confirmation_token=token,
         ai_comment=data.get("ai_comment"),
         ai_action=data.get("ai_action"),
+    )
+
+
+@router.get("/{signal_id}/confirm", include_in_schema=False)
+async def confirm_signal_get_not_allowed(signal_id: str) -> None:
+    """GET 请求绝不允许确认下单，显式返回 405。"""
+    raise HTTPException(
+        status_code=405,
+        detail=f"GET 请求不允许确认下单，请使用 POST: {signal_id}",
     )
 
 

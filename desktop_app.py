@@ -18,6 +18,12 @@ import threading
 import time
 from pathlib import Path
 
+# 窗口化打包后 sys.stdout/sys.stderr 可能为 None，先兜底避免 print 崩溃
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
 # 禁用本地回环代理拦截，强制直连
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 os.environ["no_proxy"] = "127.0.0.1,localhost"
@@ -78,12 +84,34 @@ from PySide6.QtWidgets import (
 
 def find_free_port(preferred: int = 8818) -> int:
     """优先使用 preferred 端口，若被占用则自动探测可用端口。"""
+    if preferred <= 0:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            return int(s.getsockname()[1])
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         if s.connect_ex(("127.0.0.1", preferred)) != 0:
             return preferred
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        return int(s.getsockname()[1])
+
+
+def probe_local_http(port: int, path: str, timeout: float = 30.0) -> tuple[int, bytes]:
+    """探测本地 HTTP 服务；仅用于启动就绪检查与打包自检。"""
+    import urllib.request
+
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}{path}")
+            with opener.open(req, timeout=1.0) as response:
+                return int(response.status), response.read(131072)
+        except Exception as exc:  # noqa: BLE001 - 启动阶段网络异常均视为未就绪
+            last_error = exc
+            time.sleep(0.2)
+    raise RuntimeError(f"HTTP probe {path} failed after {timeout:.0f}s: {last_error}")
 
 
 def create_procedural_icon() -> QIcon:
@@ -153,6 +181,37 @@ class UvicornServerThread(threading.Thread):
     def stop(self) -> None:
         if self.server:
             self.server.should_exit = True
+
+
+def run_headless_smoke(port: int) -> int:
+    """无界面自检：启动内嵌服务，验证健康接口与前端首页后退出。
+
+    仅供 CI / 构建脚本验证打包产物使用，不影响正常桌面启动流程。
+    """
+    server_thread = UvicornServerThread("127.0.0.1", port)
+    server_thread.start()
+    try:
+        status, body = probe_local_http(port, "/api/v1/health", timeout=40.0)
+        compact = body.replace(b" ", b"")
+        if status != 200 or b'"status":"ok"' not in compact:
+            log_debug(f"SMOKE_FAIL health status={status} body={body[:300]!r}")
+            print(f"SMOKE_FAIL health status={status}", file=sys.stderr)
+            return 1
+        status, html = probe_local_http(port, "/", timeout=10.0)
+        if status != 200 or b"<html" not in html.lower():
+            log_debug(f"SMOKE_FAIL index status={status} body={html[:300]!r}")
+            print(f"SMOKE_FAIL index status={status}", file=sys.stderr)
+            return 1
+        log_debug(f"SMOKE_OK port={port} data_dir={DATA_DIR}")
+        print(f"SMOKE_OK port={port} data_dir={DATA_DIR}")
+        return 0
+    except Exception as exc:  # noqa: BLE001 - 自检失败需要返回非零退出码
+        log_debug(f"SMOKE_FAIL exception={exc!r}")
+        print(f"SMOKE_FAIL: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        server_thread.stop()
+        time.sleep(0.2)
 
 
 class EngineWorkerThread(threading.Thread):
@@ -379,9 +438,16 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8818, help="内嵌本地 Web/API 端口 (默认 8818)")
     parser.add_argument("--engine", choices=["synthetic", "okx", "none"], default="synthetic", help="量化引擎启动模式 (默认 synthetic 仿真)")
     parser.add_argument("--interval", type=float, default=30.0, help="量化引擎轮询间隔秒数 (默认 30)")
+    parser.add_argument("--no-engine", action="store_true", help="不启动量化引擎（等价于 --engine none）")
+    parser.add_argument("--headless-smoke", action="store_true", help="无界面自检并退出（CI 打包验证专用）")
     args, unknown = parser.parse_known_args()
+    if args.no_engine:
+        args.engine = "none"
 
     port = find_free_port(args.port)
+    if args.headless_smoke:
+        return run_headless_smoke(port)
+
     print(f">>> [1/3] 正在启动内嵌 FastAPI & 静态前端服务 (http://127.0.0.1:{port})...")
     server_thread = UvicornServerThread("127.0.0.1", port)
     server_thread.start()
