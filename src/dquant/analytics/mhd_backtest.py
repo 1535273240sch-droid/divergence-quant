@@ -25,7 +25,7 @@ from dquant.db.models import BacktestRunModel, Base
 from dquant.strategies.atr_stop import initial_stop, trailing_stop
 
 DEFAULT_TIMEFRAMES = ("5m", "15m", "1H", "4H", "1D")
-DEFAULT_MAX_BARS = 1500
+DEFAULT_MAX_BARS = 5000
 DEFAULT_ATR_MULT = Decimal("2.5")
 
 

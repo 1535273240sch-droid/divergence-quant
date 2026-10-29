@@ -189,7 +189,7 @@
       method: "POST",
       body: {
         timeframes: ["5m", "15m", "1H", "4H", "1D"],
-        max_bars: 1500
+        max_bars: 5000
       }
     }).then(function (res) {
       CQ.toast("MHD 多周期回测完成");

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1/mhd", tags=["MHD 绩效"])
 class BacktestRequest(BaseModel):
     timeframes: list[str] = Field(default_factory=lambda: list(DEFAULT_TIMEFRAMES))
     inst_ids: list[str] | None = None
-    max_bars: int = Field(default=1500, ge=200, le=5000)
+    max_bars: int = Field(default=5000, ge=200, le=10000)
 
 
 @router.get("/performance", summary="获取各周期最近一次 MHD 回测绩效")
