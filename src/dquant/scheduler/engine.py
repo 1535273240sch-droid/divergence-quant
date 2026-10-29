@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import math
 import os
@@ -33,7 +34,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 import dquant.strategies  # noqa: F401  导入即注册全部内置策略
 from dquant.adapters.base import ExchangeAdapter
-from dquant.contracts import Candle, Instrument, Position, PositionSide, Ticker
+from dquant.contracts import (
+    Candle,
+    Instrument,
+    OrderState,
+    OrderType,
+    Position,
+    PositionSide,
+    Ticker,
+)
 from dquant.contracts.types import CandleBar, InstrumentState, InstrumentType, SignalAction
 from dquant.core.divergence import detect_divergences
 from dquant.core.indicators import atr as atr_series
@@ -365,6 +374,10 @@ class TradingEngine:
         self._applied_sizing: tuple[Decimal, Decimal] | None = None
         self._equity = Decimal("10000")
         self._last_equity_sync_ms = 0
+        self._live_state_path = Path.cwd() / "data" / "live_state.json"
+        self._live_state: dict[str, dict[str, dict[str, str]]] = self._load_live_state()
+        self._live_positions: list[Position] = []
+        self._last_protection_sync_ms = 0
         self.strategies: list[BaseStrategy] = self._build_strategies()
         self.oms: OMS = OMS(NullGateway(), config=ExecutionConfig(mode="demo"))  # type: ignore[arg-type]
         self._adapter: ExchangeAdapter | None = None
@@ -380,6 +393,40 @@ class TradingEngine:
         if Path(path).exists():
             return load_settings(path)
         return load_settings()
+
+    def _load_live_state(self) -> dict[str, dict[str, dict[str, str]]]:
+        """加载真实模拟盘持仓归属与保护单映射（重启后恢复管理关系）。"""
+
+        default: dict[str, dict[str, dict[str, str]]] = {
+            "owners": {},
+            "protections": {},
+        }
+        try:
+            data = json.loads(self._live_state_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            return default
+        if not isinstance(data, dict):
+            return default
+        owners = data.get("owners")
+        protections = data.get("protections")
+        return {
+            "owners": dict(owners) if isinstance(owners, dict) else {},
+            "protections": dict(protections) if isinstance(protections, dict) else {},
+        }
+
+    def _save_live_state(self) -> None:
+        self._live_state_path.parent.mkdir(parents=True, exist_ok=True)
+        temp = self._live_state_path.with_suffix(".json.tmp")
+        temp.write_text(
+            json.dumps(self._live_state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.chmod(temp, 0o600)
+        os.replace(temp, self._live_state_path)
+
+    @staticmethod
+    def _position_key(inst_id: str, pos_side: PositionSide) -> str:
+        return f"{inst_id}:{pos_side.value}"
 
     def _build_strategies(self) -> list[BaseStrategy]:
         """按运行时配置 > CLI 覆盖 > config.yaml 从注册器装配策略模块。
@@ -486,6 +533,9 @@ class TradingEngine:
                 kill_switch=self.kill_switch,
             )
         self.paper_broker = PaperBroker(self._session_factory, self.instruments)
+        if not self.options.dry_run and self._gateway is not None:
+            await self._refresh_live_positions()
+            await self._sync_live_protections()
         logger.info(
             "engine 初始化完成 source=%s universe=%d dry_run=%s equity=%s",
             self.options.source,
@@ -734,20 +784,23 @@ class TradingEngine:
         inputs = self._last_inputs
         if inputs is None:
             return
+        if not self.options.dry_run and self._gateway is not None:
+            await self._refresh_live_positions()
         contexts: list[StrategyContext] = []
-        positions = tuple(self.paper_broker.list_positions())
+        positions = self._positions_for_risk()
         for cand in record.candidates:
             ctx = self._build_context(cand, positions)
             if ctx is not None:
                 contexts.append(ctx)
         signals = select_signals(self.strategies, contexts)
         logger.info(
-            "策略周期: candidates=%d contexts=%d signals=%d strategies=%s",
+            "策略周期: candidates=%d contexts=%d signals=%d strategies=%s live=%s",
             len(record.candidates), len(contexts), len(signals),
             [s.name for s in self.strategies],
+            not self.options.dry_run,
         )
         for signal in signals:
-            current_positions = tuple(self.paper_broker.list_positions())
+            current_positions = self._positions_for_risk()
             strategy = self._strategy_for(signal.strategy_name)
             position_pct, position_multiplier, leverage = self._sizing_params(strategy)
             request = RiskRequest(
@@ -781,14 +834,12 @@ class TradingEngine:
                 if self.options.dry_run or self._gateway is None:
                     status = self._apply_paper_signal(signal, decision, position)
                 elif signal.action is SignalAction.OPEN:
-                    await self._submit_order(signal, decision)
-                    status = "SUBMITTED"
+                    status = await self._execute_live_open(signal, decision)
+                elif position is not None:
+                    status = await self._execute_live_management(signal, position)
                 else:
-                    logger.warning(
-                        "执行模式暂未启用自动移动止损/平仓，信号仅记录: %s",
-                        signal.signal_id,
-                    )
-                    status = "PENDING"
+                    logger.warning("管理信号找不到真实持仓: %s", signal.signal_id)
+                    status = "REJECTED"
             self._persist_signal(signal, decision, status=status)
 
     def _strategy_for(self, name: str) -> BaseStrategy | None:
@@ -865,14 +916,357 @@ class TradingEngine:
             return "CLOSED"
         return "PENDING"
 
+    # -- 真实 OKX 模拟盘执行与持仓管理 -------------------------------------
+    def _positions_for_risk(self) -> tuple[Position, ...]:
+        if self.options.dry_run or self._gateway is None:
+            return tuple(self.paper_broker.list_positions())
+        return tuple(self._live_positions)
+
+    async def _refresh_live_positions(self) -> None:
+        if self._gateway is None:
+            return
+        try:
+            positions = await self._gateway.fetch_positions()
+        except Exception as exc:  # noqa: BLE001 - 读持仓失败不阻断行情主链路
+            logger.warning("读取 OKX 持仓失败: %s", exc)
+            return
+        active_keys: set[str] = set()
+        enriched: list[Position] = []
+        for position in positions:
+            key = self._position_key(position.inst_id, position.pos_side)
+            active_keys.add(key)
+            owner = self._live_state["owners"].get(key, "external")
+            enriched.append(position.model_copy(update={"strategy": owner}))
+        stale = set(self._live_state["owners"]) - active_keys
+        stale |= set(self._live_state["protections"]) - active_keys
+        for key in stale:
+            self._live_state["owners"].pop(key, None)
+            self._live_state["protections"].pop(key, None)
+        self._live_positions = enriched
+        if stale:
+            self._save_live_state()
+
+    async def _sync_live_protections(self) -> None:
+        """从 OKX 条件单中恢复当前止损价与 algoId。"""
+
+        if self._adapter is None or self._gateway is None:
+            return
+        list_fn = getattr(self._adapter, "list_pending_algo_orders", None)
+        if list_fn is None:
+            return
+        try:
+            algos = await list_fn()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("读取条件保护单失败: %s", exc)
+            return
+        changed = False
+        for position in self._live_positions:
+            key = self._position_key(position.inst_id, position.pos_side)
+            candidates = [
+                item
+                for item in algos
+                if str(item.get("instId")) == position.inst_id
+                and str(item.get("posSide")) == position.pos_side.value
+                and item.get("slTriggerPx")
+            ]
+            if not candidates:
+                if key in self._live_state["protections"]:
+                    self._live_state["protections"].pop(key, None)
+                    changed = True
+                continue
+            item = candidates[-1]
+            self._live_state["protections"][key] = {
+                "algo_id": str(item.get("algoId") or ""),
+                "stop": str(item.get("slTriggerPx")),
+            }
+            changed = True
+        if changed:
+            self._save_live_state()
+
+    async def _execute_live_open(self, signal, decision) -> str:  # noqa: ANN001
+        """真实模拟盘开仓：下单 → 等待持仓 → 挂保护止损。"""
+
+        if self._gateway is None or self._adapter is None:
+            logger.warning("真实执行缺少 OKX 网关，订单仅生成未提交: %s", signal.signal_id)
+            return "REJECTED"
+        instrument = self.instruments.get(signal.inst_id)
+        if instrument is None:
+            logger.warning("真实执行缺少合约信息: %s", signal.inst_id)
+            return "REJECTED"
+        strategy = self._strategy_for(signal.strategy_name)
+        _, _, leverage = self._sizing_params(strategy)
+        try:
+            await self._adapter.set_leverage(
+                signal.inst_id,
+                int(leverage),
+                "isolated",
+                pos_side=signal.side.value,
+            )
+        except Exception as exc:  # noqa: BLE001 - 杠杆设置失败不阻断下单
+            logger.warning("设置杠杆失败 %s: %s", signal.inst_id, exc)
+
+        order = self.oms.build_order_request(signal, decision, instrument)
+        self._seq += 1
+        prefix = signal.strategy_name.upper()[:8]
+        order = order.model_copy(
+            update={"cl_ord_id": build_client_order_id(prefix, signal.created_ts_ms, self._seq)}
+        )
+        ack = await self.oms.submit(order)
+        logger.info(
+            "真实模拟盘订单已提交: clOrdId=%s ordId=%s state=%s qty=%s",
+            ack.cl_ord_id,
+            ack.ord_id,
+            ack.state.value,
+            order.size,
+        )
+        if ack.state is OrderState.REJECTED:
+            return "REJECTED"
+
+        position: Position | None = None
+        for _ in range(20):
+            await asyncio.sleep(0.5)
+            try:
+                positions = await self._gateway.fetch_positions()
+            except Exception:  # noqa: BLE001
+                continue
+            position = next(
+                (
+                    item
+                    for item in positions
+                    if item.inst_id == signal.inst_id
+                    and item.pos_side is PositionSide(signal.side.value)
+                    and item.size > 0
+                ),
+                None,
+            )
+            if position is not None:
+                break
+        if position is None:
+            logger.warning("订单已提交但暂未检测到持仓: %s", ack.cl_ord_id)
+            return "SUBMITTED"
+
+        key = self._position_key(position.inst_id, position.pos_side)
+        self._live_state["owners"][key] = signal.strategy_name
+        protection_error: str | None = None
+        if signal.stop_loss is not None:
+            try:
+                algo_ids = await self._gateway.place_protection_order(
+                    ProtectionRequest(
+                        source_cl_ord_id=order.cl_ord_id,
+                        inst_id=position.inst_id,
+                        pos_side=position.pos_side,
+                        size=position.size,
+                        stop_loss=signal.stop_loss,
+                        take_profits=tuple(signal.take_profits),
+                        mode="demo",
+                    )
+                )
+                self._live_state["protections"][key] = {
+                    "algo_id": algo_ids.split(",")[0],
+                    "stop": str(signal.stop_loss),
+                }
+            except Exception as exc:  # noqa: BLE001
+                protection_error = str(exc)
+                logger.error("真实仓位保护单创建失败 %s: %s", signal.inst_id, exc)
+        self._save_live_state()
+        await self._refresh_live_positions()
+        logger.info(
+            "真实模拟盘开仓完成 %s %s size=%s avg=%s stop=%s%s",
+            signal.strategy_name,
+            signal.inst_id,
+            position.size,
+            position.avg_price,
+            signal.stop_loss,
+            "" if protection_error is None else f" (保护单异常: {protection_error})",
+        )
+        return "FILLED"
+
+    async def _execute_live_management(self, signal, position: Position) -> str:  # noqa: ANN001
+        if signal.action is SignalAction.MOVE_STOP:
+            if signal.stop_loss is None:
+                return "REJECTED"
+            ok = await self._replace_live_protection(
+                position.inst_id,
+                position.pos_side,
+                position.size,
+                signal.stop_loss,
+                signal.signal_id,
+            )
+            return "MANAGED" if ok else "REJECTED"
+        if signal.action in (SignalAction.CLOSE, SignalAction.REDUCE):
+            await self._close_live_position(position, signal.reason)
+            return "CLOSED"
+        return "PENDING"
+
+    async def _replace_live_protection(
+        self,
+        inst_id: str,
+        pos_side: PositionSide,
+        size: Decimal,
+        stop_loss: Decimal,
+        source_id: str,
+    ) -> bool:
+        if self._gateway is None or self._adapter is None:
+            return False
+        key = self._position_key(inst_id, pos_side)
+        old = self._live_state["protections"].get(key, {})
+        algo_id = old.get("algo_id")
+        if algo_id:
+            cancel_fn = getattr(self._adapter, "cancel_algo_order", None)
+            if cancel_fn is not None:
+                try:
+                    await cancel_fn(inst_id, algo_id)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("撤销旧保护单失败 %s %s: %s", inst_id, algo_id, exc)
+        try:
+            algo_ids = await self._gateway.place_protection_order(
+                ProtectionRequest(
+                    source_cl_ord_id=source_id[:32],
+                    inst_id=inst_id,
+                    pos_side=pos_side,
+                    size=size,
+                    stop_loss=stop_loss,
+                    take_profits=(),
+                    mode="demo",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("更新保护单失败 %s: %s", inst_id, exc)
+            return False
+        self._live_state["protections"][key] = {
+            "algo_id": algo_ids.split(",")[0],
+            "stop": str(stop_loss),
+        }
+        self._save_live_state()
+        logger.info("真实移动止损更新 %s %s -> %s", inst_id, pos_side.value, stop_loss)
+        return True
+
+    async def _close_live_position(self, position: Position, reason: str) -> None:
+        if self._gateway is None or self._adapter is None:
+            return
+        key = self._position_key(position.inst_id, position.pos_side)
+        algo_id = self._live_state["protections"].get(key, {}).get("algo_id")
+        if algo_id:
+            cancel_fn = getattr(self._adapter, "cancel_algo_order", None)
+            if cancel_fn is not None:
+                try:
+                    await cancel_fn(position.inst_id, algo_id)
+                except Exception:  # noqa: BLE001
+                    pass
+        self._seq += 1
+        order = OrderRequest(
+            cl_ord_id=build_client_order_id("CLOSE", utc_now_ms(), self._seq),
+            inst_id=position.inst_id,
+            # OKX 适配器按“持仓方向 + reduceOnly”决定买卖方向，不能在这里先取反。
+            side=position.pos_side,
+            pos_side=position.pos_side,
+            order_type=OrderType.MARKET,
+            size=position.size,
+            reduce_only=True,
+            mode="demo",
+        )
+        try:
+            ack = await self._gateway.place_order(order)
+            logger.info(
+                "真实模拟盘平仓已提交 %s %s size=%s ordId=%s reason=%s",
+                position.inst_id,
+                position.pos_side.value,
+                position.size,
+                ack.ord_id,
+                reason,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("真实平仓失败 %s: %s", position.inst_id, exc)
+            return
+        self._live_state["owners"].pop(key, None)
+        self._live_state["protections"].pop(key, None)
+        self._save_live_state()
+        await asyncio.sleep(0.5)
+        await self._refresh_live_positions()
+
+    async def _manage_live_positions(self) -> None:
+        """对真实模拟盘 MHD 持仓执行 ATR 移动止损。"""
+
+        if self.options.dry_run or self._gateway is None:
+            return
+        mhd = self._strategy_for("MHD")
+        if mhd is None:
+            return
+        try:
+            atr_mult = Decimal(str(mhd.params["atr_mult"]))
+            atr_period = int(mhd.params["atr_period"])
+        except (KeyError, ArithmeticError, ValueError):
+            return
+        await self._refresh_live_positions()
+        await self._sync_live_protections()
+        for position in list(self._live_positions):
+            if position.strategy != "MHD":
+                continue
+            candles = self._recent_four_hour_candles(position.inst_id)
+            if len(candles) < max(20, atr_period + 2):
+                continue
+            highs = [float(candle.high) for candle in candles]
+            lows = [float(candle.low) for candle in candles]
+            closes = [float(candle.close) for candle in candles]
+            atr_values = atr_series(highs, lows, closes, atr_period)
+            if not math.isfinite(float(atr_values[-1])) or atr_values[-1] <= 0:
+                continue
+            atr_last = Decimal(str(float(atr_values[-1])))
+            key = self._position_key(position.inst_id, position.pos_side)
+            current_stop = self._live_state["protections"].get(key, {}).get("stop")
+            current_stop_d = Decimal(current_stop) if current_stop else position.stop_loss
+            since_entry = [
+                candle for candle in candles if candle.ts_ms >= position.opened_ts_ms
+            ] or [candles[-1]]
+            mark = position.mark_price
+            if position.pos_side is PositionSide.LONG:
+                reference = max(candle.high for candle in since_entry)
+                if current_stop_d is not None and mark <= current_stop_d:
+                    await self._close_live_position(position, "真实 ATR 止损触发")
+                    continue
+                candidate = trailing_stop(
+                    position.pos_side, reference, atr_last, atr_mult, current_stop_d
+                )
+                if candidate > 0 and (
+                    current_stop_d is None or candidate > current_stop_d
+                ):
+                    await self._replace_live_protection(
+                        position.inst_id,
+                        position.pos_side,
+                        position.size,
+                        candidate,
+                        f"MHD-TRAIL-{position.inst_id}-{int(mark)}",
+                    )
+            else:
+                reference = min(candle.low for candle in since_entry)
+                if current_stop_d is not None and mark >= current_stop_d:
+                    await self._close_live_position(position, "真实 ATR 止损触发")
+                    continue
+                candidate = trailing_stop(
+                    position.pos_side, reference, atr_last, atr_mult, current_stop_d
+                )
+                if candidate > 0 and (
+                    current_stop_d is None or candidate < current_stop_d
+                ):
+                    await self._replace_live_protection(
+                        position.inst_id,
+                        position.pos_side,
+                        position.size,
+                        candidate,
+                        f"MHD-TRAIL-{position.inst_id}-{int(mark)}",
+                    )
+
     # -- 运行时维护：参数热更新、模拟仓位调仓与 ATR 移动止损 ------------------
     async def maintenance_cycle(self) -> None:
-        """30 秒运行一次：检查参数变更、同步权益、维护模拟仓位。"""
+        """30 秒运行一次：检查参数变更、同步权益、维护真实或纸面仓位。"""
 
         self._reload_strategies_if_needed()
         await self._refresh_equity()
-        self._apply_runtime_position_changes()
-        self._manage_paper_positions()
+        if self.options.dry_run or self._gateway is None:
+            self._apply_runtime_position_changes()
+            self._manage_paper_positions()
+        else:
+            await self._manage_live_positions()
 
     async def _refresh_equity(self) -> None:
         if self._adapter is None:

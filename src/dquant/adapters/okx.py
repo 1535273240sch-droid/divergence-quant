@@ -568,18 +568,46 @@ class OkxAdapter(ExchangeAdapter):
             body={"instId": inst_id, "clOrdId": cl_ord_id},
         )
 
-    async def set_leverage(self, inst_id: str, lever: int, mgn_mode: str) -> None:
-        await self._call(
-            "POST",
-            _SET_LEVERAGE_PATH,
-            None,
-            auth=True,
-            body={"instId": inst_id, "lever": str(lever), "mgnMode": mgn_mode},
-        )
+    async def set_leverage(
+        self,
+        inst_id: str,
+        lever: int,
+        mgn_mode: str,
+        *,
+        pos_side: str | None = None,
+    ) -> None:
+        body: dict[str, Any] = {
+            "instId": inst_id,
+            "lever": str(lever),
+            "mgnMode": mgn_mode,
+        }
+        if pos_side:
+            body["posSide"] = pos_side
+        await self._call("POST", _SET_LEVERAGE_PATH, None, auth=True, body=body)
 
     async def set_position_mode(self, mode: str) -> None:
         await self._call(
             "POST", _SET_POSITION_MODE_PATH, None, auth=True, body={"posMode": mode}
+        )
+
+    async def list_pending_algo_orders(self, inst_id: str | None = None) -> list[dict[str, Any]]:
+        """查询当前挂着的条件保护单（止损/止盈算法单）。"""
+
+        params: dict[str, str] = {"ordType": "conditional"}
+        if inst_id:
+            params["instId"] = inst_id
+        data = await self._call("GET", "/api/v5/trade/orders-algo-pending", params, auth=True)
+        return [dict(item) for item in data if isinstance(item, dict)]
+
+    async def cancel_algo_order(self, inst_id: str, algo_id: str) -> None:
+        """撤销一个条件保护单。"""
+
+        await self._call(
+            "POST",
+            "/api/v5/trade/cancel-algos",
+            None,
+            auth=True,
+            body=[{"instId": inst_id, "algoId": algo_id}],
         )
 
     async def place_protection_order(self, request: ProtectionRequest) -> str:

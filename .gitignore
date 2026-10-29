@@ -49,3 +49,6 @@ archive/
 # Strategy runtime overrides (API writes, engine hot-loads)
 data/strategy_runtime.json
 data/strategy_runtime.json.lock
+
+data/live_state.json
+data/live_state.json.tmp
