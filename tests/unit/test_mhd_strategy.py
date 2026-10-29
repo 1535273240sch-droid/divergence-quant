@@ -109,6 +109,39 @@ def test_mhd_emits_short_signal_at_confirmed_top(monkeypatch) -> None:
     assert "MHD" in opened.reason
 
 
+def test_mhd_emits_long_signal_at_confirmed_bottom(monkeypatch) -> None:
+    candles = _series()
+    signal = MHDSignal(
+        kind="bottom",
+        swing_index=148,
+        confirmed_index=149,
+        price=float(candles[-1].low),
+        hist=-5.0,
+        d_pair=1.1,
+        d_peak=2.0,
+        d=2.0,
+        reference="peak",
+        reference_index=140,
+        pm=-1.0,
+        hm=1.0,
+    )
+    monkeypatch.setattr(
+        mhd_module,
+        "detect_mhd",
+        lambda *args, **kwargs: _fake_result(signals=(signal,)),
+    )
+
+    result = MHDDivergenceStrategy({"timeframe": "4H"}).on_bar(_context(candles))
+
+    assert len(result) == 1
+    opened = result[0]
+    assert opened.action is SignalAction.OPEN
+    assert opened.side is SignalSide.LONG
+    assert opened.price == candles[-1].close
+    assert opened.stop_loss == candles[-1].close - Decimal("5.0")
+    assert opened.take_profits == []
+
+
 def test_mhd_position_management_moves_stop_and_closes(monkeypatch) -> None:
     candles = _series()
     candles[-1] = _candle(149, "120", high="125", low="119")
