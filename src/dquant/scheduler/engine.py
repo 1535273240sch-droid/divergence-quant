@@ -334,7 +334,11 @@ class TradingEngine:
             db_file = Path.cwd() / db_file
         db_file.parent.mkdir(parents=True, exist_ok=True)
         legacy_db = Path.cwd() / "engine.db"
-        if not db_file.is_file() and legacy_db.is_file() and legacy_db.resolve() != db_file.resolve():
+        if (
+            not db_file.is_file()
+            and legacy_db.is_file()
+            and legacy_db.resolve() != db_file.resolve()
+        ):
             import shutil
             try:
                 shutil.copy2(legacy_db, db_file)

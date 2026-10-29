@@ -62,6 +62,7 @@ def ensure_engine_db(path: Path | None = None) -> Path:
                 pass
         try:
             from sqlalchemy import create_engine
+
             from dquant.db.models import Base
 
             engine = create_engine(f"sqlite:///{target.as_posix()}", future=True)
