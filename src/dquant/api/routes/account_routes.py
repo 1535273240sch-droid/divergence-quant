@@ -61,10 +61,14 @@ async def account_summary(user: CurrentUser) -> dict[str, Any]:
         warning = f"余额已读取，但持仓读取失败: {exc.msg}"
 
     usdt = balance.details.get("USDT")
+    # OKX App 的 USDT 账户权益口径是 details.USDT.eq；totalEq 是折算 USD，
+    # 两者会因 USDT/USD 汇率产生少量差异，前端以 USDT 口径展示。
+    balance_usdt = usdt.equity if usdt is not None else balance.total_equity_usd
     return {
         "connected": True,
         "message": warning or "OKX 模拟盘账户已连接",
-        "balance_usdt": float(balance.total_equity_usd),
+        "balance_usdt": float(balance_usdt),
+        "total_equity_usd": float(balance.total_equity_usd),
         "available_usdt": float(usdt.available) if usdt is not None else None,
         "positions": positions,
     }

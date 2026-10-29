@@ -61,6 +61,11 @@ class MHDDivergenceStrategy(BaseStrategy):
 
     name = "MHD"
     version = "1.0.0"
+    formula = (
+        "pm=(price_b-price_ref)/ATR14_ref; "
+        "hm=(hist_b-hist_ref)/stdev(hist,100)_b; "
+        "D=pm-hm; D=max(D_pair,D_peak)"
+    )
     default_params = {
         "enabled": True,
         # 摆动点确认参数

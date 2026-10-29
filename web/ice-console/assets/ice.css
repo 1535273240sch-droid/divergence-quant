@@ -3094,6 +3094,20 @@ html[data-theme="obsidian"] .table-row:hover {
   letter-spacing: 0.02em;
 }
 
+.factor-apply {
+  margin-left: 6px;
+  padding: 4px 8px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.agent.is-selected {
+  border-color: rgba(15, 118, 110, 0.42);
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.12), 0 8px 22px rgba(15, 118, 110, 0.08);
+}
+.agent.is-selected .agent-state {
+  color: var(--bull-bright);
+}
+
 /* MHD strategy drawer */
 .strategy-drawer .factor-form h3 {
   display: flex;

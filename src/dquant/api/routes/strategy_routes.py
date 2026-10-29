@@ -14,17 +14,19 @@ from fastapi import APIRouter
 
 from dquant.api import live_data
 from dquant.api.audit import AuditService
-from dquant.api.auth import CurrentUser
+from dquant.api.auth import CurrentUser, OptionalUser
 from dquant.api.errors import APIException, NotFoundException
 from dquant.api.schemas import (
     ProposalActionRequest,
+    SetActiveStrategiesRequest,
     StandardSuccessResponse,
     StrategyInfo,
     UpdateStrategyParamsRequest,
 )
 from dquant.runtime import StrategyRuntimeConfig
 from dquant.settings import load_settings
-from dquant.strategies import create_strategy
+from dquant.strategies import create_strategy, registry
+from dquant.strategies import list_strategies as registered_strategies
 
 router = APIRouter(prefix="/api/v1/strategies", tags=["策略与审批"])
 _audit_service = AuditService()
@@ -83,9 +85,29 @@ def _json_value(value: object) -> object:
 
 def _active_names() -> list[str]:
     try:
-        return list(load_settings().strategies.active)
+        configured = list(load_settings().strategies.active)
     except Exception:  # noqa: BLE001 - 配置读取失败时仍允许查看策略
-        return ["MHD"]
+        configured = ["MHD"]
+    runtime_active = list(_runtime_config().snapshot().get("active") or [])
+    return runtime_active or configured
+
+
+def _meta_for(strategy_id: str) -> dict[str, str] | None:
+    """解析前端 strategy_id；未登记元数据的策略按类名直接暴露。"""
+
+    meta = _STRATEGY_META.get(strategy_id)
+    if meta is not None:
+        return meta
+    if strategy_id in registered_strategies():
+        strategy_cls = registry.get(strategy_id)
+        description = (strategy_cls.__doc__ or "已注册策略模块").strip().splitlines()[0]
+        return {
+            "class_name": strategy_id,
+            "name": strategy_id,
+            "description": description,
+            "formula": getattr(strategy_cls, "formula", None) or "",
+        }
+    return None
 
 
 def _effective_params(class_name: str) -> dict[str, Any]:
@@ -116,15 +138,20 @@ def _position_count(class_name: str) -> int:
         return 0
 
 
-@router.get("", response_model=list[StrategyInfo], summary="获取策略列表与参数")
-async def list_strategies(user: CurrentUser) -> list[StrategyInfo]:
-    """获取所有已注册策略、启用状态、当前运行参数与模拟持仓数量。"""
+@router.get("", response_model=list[StrategyInfo], summary="获取因子/策略列表与参数")
+async def list_strategies(user: OptionalUser) -> list[StrategyInfo]:
+    """获取所有已注册因子/策略、启用状态、当前运行参数与模拟持仓数量。
+
+    该列表是只读元数据，未登录也可以查看；修改参数与组合必须登录。
+    """
 
     del user
     active = set(_active_names())
     items: list[StrategyInfo] = []
+    known_classes: set[str] = set()
     for strategy_id, meta in _STRATEGY_META.items():
         class_name = meta["class_name"]
+        known_classes.add(class_name)
         params = _effective_params(class_name)
         enabled = bool(params.get("enabled", True)) and class_name in active
         items.append(
@@ -138,7 +165,60 @@ async def list_strategies(user: CurrentUser) -> list[StrategyInfo]:
                 formula=meta["formula"] or None,
             )
         )
+    # 新增策略只要在 strategies/__init__.py 注册，就会自动出现在列表里。
+    for class_name in registered_strategies():
+        if class_name in known_classes:
+            continue
+        meta = _meta_for(class_name)
+        if meta is None:
+            continue
+        params = _effective_params(class_name)
+        enabled = bool(params.get("enabled", True)) and class_name in active
+        items.append(
+            StrategyInfo(
+                strategy_id=class_name,
+                name=meta["name"],
+                enabled=enabled,
+                description=meta["description"],
+                params=params,
+                current_positions=_position_count(class_name),
+                formula=meta["formula"] or None,
+            )
+        )
     return items
+
+
+@router.put("/active", response_model=StandardSuccessResponse, summary="人工确认因子组合")
+async def set_active_strategies(
+    req: SetActiveStrategiesRequest,
+    user: CurrentUser,
+) -> StandardSuccessResponse:
+    """保存人工选择的因子组合；选中几个就同时运行几个。"""
+
+    class_names: list[str] = []
+    for strategy_id in req.active:
+        meta = _meta_for(strategy_id)
+        if meta is None:
+            raise APIException("UNKNOWN_STRATEGY", f"未找到因子/策略: {strategy_id}", 400)
+        if meta["class_name"] not in class_names:
+            class_names.append(meta["class_name"])
+    if not class_names:
+        raise APIException("EMPTY_ACTIVE_LIST", "请至少选择一个因子", 400)
+
+    before_active = list(_runtime_config().snapshot().get("active", []))
+    _runtime_config().set_active(class_names)
+    await _audit_service.log_action(
+        user=user["username"],
+        action="SET_ACTIVE_FACTORS",
+        before={"active": before_active},
+        after={"active": class_names, "reason": req.reason},
+    )
+    return StandardSuccessResponse(
+        message=(
+            f"已确认运行组合: {', '.join(class_names)}；"
+            "引擎将在 30 秒内热加载并只运行选中的因子"
+        )
+    )
 
 
 @router.put("/{strategy_id}/params", response_model=StandardSuccessResponse, summary="修改策略参数")
@@ -149,7 +229,7 @@ async def update_strategy_params(
 ) -> StandardSuccessResponse:
     """修改指定策略参数并写入运行时文件；引擎 30 秒内热加载。"""
 
-    meta = _STRATEGY_META.get(strategy_id)
+    meta = _meta_for(strategy_id)
     if meta is None:
         raise NotFoundException(message=f"未找到策略: {strategy_id}")
     class_name = meta["class_name"]

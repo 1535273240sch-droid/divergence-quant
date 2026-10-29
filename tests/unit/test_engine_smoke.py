@@ -173,9 +173,12 @@ def test_engine_registry_driven_selection(tmp_path) -> None:  # noqa: ANN001
     assert [s.name for s in engine2.strategies] == ["S2", "S1"]
 
 
-def test_engine_params_override_from_config(tmp_path) -> None:  # noqa: ANN001
+def test_engine_params_override_from_config(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     from dquant.scheduler.engine import EngineOptions, TradingEngine
 
+    monkeypatch.setenv(
+        "DQUANT_STRATEGY_RUNTIME_FILE", str(tmp_path / "strategy_runtime.json")
+    )
     config = tmp_path / "cfg.yaml"
     config.write_text(
         "strategies:\n"

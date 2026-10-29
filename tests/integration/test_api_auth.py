@@ -307,3 +307,13 @@ def test_strategy_management_and_audit(client: TestClient, monkeypatch, tmp_path
     assert mhd["params"]["position_pct"] == 0.4
     assert mhd["params"]["position_multiplier"] == 1.5
     assert mhd["params"]["leverage"] == 5
+
+    # 人工确认因子组合：只运行 MHD；选中多个 ID 时按顺序写入运行组合
+    res_active = client.put(
+        "/api/v1/strategies/active",
+        headers=headers,
+        json={"active": ["mhd_divergence"], "reason": "人工确认只运行 MHD"},
+    )
+    assert res_active.status_code == 200
+    assert res_active.json()["success"] is True
+    assert "MHD" in res_active.json()["message"]

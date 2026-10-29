@@ -126,6 +126,7 @@ class BaseStrategy(ABC):
 
     name: str = "BASE"
     version: str = "1.0.0"
+    formula: str | None = None
     default_params: Mapping[str, Any] = {"enabled": True}
 
     def __init__(self, params: Mapping[str, Any] | None = None) -> None:

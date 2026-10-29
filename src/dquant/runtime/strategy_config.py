@@ -94,6 +94,17 @@ class StrategyRuntimeConfig:
             self._write_unlocked(data)
         return self.snapshot()
 
+    def set_active(self, active: list[str]) -> dict[str, Any]:
+        """保存人工确认的因子/策略组合。"""
+
+        with self._locked():
+            data = self._read_unlocked()
+            data["active"] = list(active)
+            data["version"] = int(data.get("version", 1))
+            data["updated_ts_ms"] = int(time.time() * 1000)
+            self._write_unlocked(data)
+        return self.snapshot()
+
     def _read(self) -> dict[str, Any]:
         with self._locked():
             return self._read_unlocked()

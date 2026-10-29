@@ -182,6 +182,13 @@ class UpdateStrategyParamsRequest(BaseSchema):
     reason: str = Field(min_length=1, description="修改原因（写入审计日志）")
 
 
+class SetActiveStrategiesRequest(BaseSchema):
+    """人工选择本次运行的因子/策略组合。"""
+
+    active: list[str] = Field(description="选中的因子 strategy_id 列表")
+    reason: str = Field(default="人工确认因子组合", description="组合原因")
+
+
 class ProposalActionRequest(BaseSchema):
     """AI 进化提案审批/驳回请求。"""
 

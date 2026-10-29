@@ -19,6 +19,8 @@
   var started = false;
   var timers = [];
   var liveSignal = null;
+  var factorItems = [];
+  var factorSelection = {};
 
   var ui = { symbol: "BTC", tf: "4H" };
 
@@ -163,6 +165,7 @@
         hideLogin();
         applyAuthUI();
         refreshAccount();
+        refreshFactors().catch(function () {});
         CQ.toast(
           authMode === "register" ? "注册成功 · 已登录" : "已登录 · " + account.username
         );
@@ -323,6 +326,7 @@
         }
         CQ.toast("已退出登录");
         refreshOverview().catch(function () {});
+        refreshFactors().catch(function () {});
       });
     }
 
@@ -606,38 +610,83 @@
     });
   }
 
-  function regimeLabel(r) {
-    if (r === "UPTREND") return { text: "上升趋势", cls: "dir-long" };
-    if (r === "DOWNTREND") return { text: "下降趋势", cls: "dir-short" };
-    return { text: "区间震荡", cls: "dir-flat" };
+  function factorIsSelected(id) {
+    return !!factorSelection[id];
   }
 
-  function refreshCandidates() {
-    return http("/market/candidates").then(function (rows) {
-      var list = CQ.el("agentList");
-      if (!list || !rows.length) return;
-      // 每个币池独立排名，展示时按分数统一排序
-      var sorted = rows.slice().sort(function (a, b) { return b.score - a.score; });
-      var html = "";
-      sorted.slice(0, 6).forEach(function (c, i) {
-        var key = keyOf(c.inst_id);
-        var reg = regimeLabel(c.regime);
-        html +=
-          '<article class="agent" data-agent="' + c.inst_id + '">' +
-          '<div class="agent-top"><i class="breath-dot"></i>' +
-          '<span class="agent-name">#' + (i + 1) + " · " + key + "</span>" +
-          '<span class="agent-state">POOL ' + c.pool + "</span></div>" +
-          '<div class="agent-mid"><span class="agent-pair">' + key + "/USDT <em>PERP</em></span>" +
-          '<span class="dir ' + reg.cls + '">' + reg.text + "</span></div>" +
-          '<div class="agent-metrics"><span><em>SCORE</em><b class="num">' + c.score.toFixed(1) + "</b></span>" +
-          '<span><em>RANK</em><b class="num">' + c.rank + "</b></span>" +
-          '<span><em>POOL</em><b class="num">' + c.pool + "</b></span></div></article>";
+  function renderFactorCards() {
+    var list = CQ.el("agentList");
+    if (!list) return;
+    if (!factorItems.length) {
+      list.innerHTML = '<div class="agent-loading">还没有注册因子。登录后可在策略面板查看。</div>';
+      return;
+    }
+    var html = "";
+    factorItems.forEach(function (f) {
+      var p = f.params || {};
+      var selected = factorIsSelected(f.strategy_id);
+      var pct = p.position_pct != null ? Math.round(Number(p.position_pct) * 100) + "%" : "—";
+      var lev = p.leverage != null ? Number(p.leverage).toFixed(0) + "x" : "—";
+      var dd = p.min_d != null ? Number(p.min_d).toFixed(2) : "—";
+      html +=
+        '<article class="agent' + (selected ? " is-selected" : "") + '" data-factor-id="' + f.strategy_id + '">' +
+        '<div class="agent-top"><i class="breath-dot"></i>' +
+        '<span class="agent-name">' + f.name + "</span>" +
+        '<span class="agent-state">' + (selected ? "已选" : "未选") + "</span></div>" +
+        '<div class="agent-mid"><span class="agent-pair">' + f.strategy_id + '</span>' +
+        '<span class="dir ' + (selected ? "dir-long" : "dir-flat") + '">' + (selected ? "RUN" : "IDLE") + "</span></div>" +
+        '<div class="agent-metrics"><span><em>POS</em><b class="num">' + pct + "</b></span>" +
+        '<span><em>LEV</em><b class="num">' + lev + "</b></span>" +
+        '<span><em>D</em><b class="num">' + dd + "</b></span></div></article>";
+    });
+    list.innerHTML = html;
+    Array.prototype.forEach.call(list.querySelectorAll("[data-factor-id]"), function (card) {
+      card.addEventListener("click", function () {
+        var id = card.getAttribute("data-factor-id");
+        factorSelection[id] = !factorSelection[id];
+        renderFactorCards();
       });
-      list.innerHTML = html;
-      var cnt = CQ.el("activeAgentCount");
-      if (cnt) cnt.textContent = rows.length;
-      var run = CQ.el("runAgents");
-      if (run) run.textContent = rows.length;
+    });
+    var count = Object.keys(factorSelection).filter(function (k) { return factorSelection[k]; }).length;
+    var cnt = CQ.el("activeAgentCount");
+    if (cnt) cnt.textContent = count;
+    var run = CQ.el("runAgents");
+    if (run) run.textContent = count;
+  }
+
+  function refreshFactors() {
+    var list = CQ.el("agentList");
+    return http("/strategies").then(function (rows) {
+      // 因子矩阵只显示带 formula 的因子模块；普通策略仍在策略面板。
+      factorItems = (rows || []).filter(function (item) { return !!item.formula; });
+      factorSelection = {};
+      factorItems.forEach(function (item) {
+        if (item.enabled) factorSelection[item.strategy_id] = true;
+      });
+      renderFactorCards();
+    }).catch(function () {
+      if (list) list.innerHTML = '<div class="agent-loading">因子列表加载失败，请稍后重试。</div>';
+    });
+  }
+
+  function applyFactorSelection() {
+    var active = Object.keys(factorSelection).filter(function (key) { return factorSelection[key]; });
+    if (!token) {
+      openAuth();
+      return;
+    }
+    if (!active.length) {
+      CQ.toast("请至少选择一个因子", true);
+      return;
+    }
+    http("/strategies/active", {
+      method: "PUT",
+      body: { active: active, reason: "人工确认因子组合" }
+    }).then(function (res) {
+      CQ.toast((res && res.message) || "因子组合已确认");
+      refreshFactors().catch(function () {});
+    }).catch(function (err) {
+      CQ.toast((err && err.message) || "因子组合保存失败", true);
     });
   }
 
@@ -721,8 +770,6 @@
           '<div><span class="micro">待确认</span><b class="num">' + (o.pending_signals || 0) + "</b></div>" +
           '<div><span class="micro">持仓</span><b class="num">' + (o.positions || 0) + "</b></div>";
       }
-      var run = CQ.el("runAgents");
-      if (run) run.textContent = o.screener_results ? Math.min(o.screener_results, 8) : 0;
 
       // 组合敞口：没有持仓时不得显示演示出来的多空比例
       var exp = document.querySelector(".exposure-body");
@@ -906,7 +953,7 @@
         // 首屏只等「数值 + 图表 + 卡片」，盘口/成交稍后补，避免被代理拖慢
         // 第一轮全部走本地引擎库（毫秒级），先把画面填实
         return Promise.all([
-          refreshCandidates().catch(function () {}),
+          refreshFactors().catch(function () {}),
           refreshCandles().catch(function () {}),
           refreshSignals().catch(function () {}),
           refreshOverview().catch(function () {})
@@ -928,7 +975,7 @@
     loop(refreshTicker, 5000);
     loop(refreshTopTickers, 12000);
     loop(refreshCandles, 60000);
-    loop(refreshCandidates, 60000);
+    loop(refreshFactors, 60000);
     loop(refreshSignals, 15000);
     loop(refreshOverview, 30000);
     loop(refreshAccount, 60000);
@@ -944,6 +991,8 @@
   /* ---------------- 入口 ---------------- */
   function boot() {
     token = localStorage.getItem(TOKEN_KEY) || "";
+    var applyFactorsBtn = CQ.el("applyFactors");
+    if (applyFactorsBtn) applyFactorsBtn.addEventListener("click", applyFactorSelection);
     var kicked = false;
     function kick() {
       if (kicked) return;

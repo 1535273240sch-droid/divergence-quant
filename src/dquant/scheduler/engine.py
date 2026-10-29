@@ -470,8 +470,9 @@ class TradingEngine:
                 logger.error("OKX 启动对账失败，已保持开仓锁定: %s", exc)
             try:
                 balance = await adapter.fetch_balance()
-                self._equity = balance.total_equity_usd
-                logger.info("密钥验证通过, 模拟盘账户权益: %s USDT", balance.total_equity_usd)
+                usdt = balance.details.get("USDT")
+                self._equity = usdt.equity if usdt is not None else balance.total_equity_usd
+                logger.info("密钥验证通过, 模拟盘 USDT 权益: %s USDT", self._equity)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("密钥验证失败 (行情采集不受影响): %s", exc)
 
@@ -882,8 +883,10 @@ class TradingEngine:
         self._last_equity_sync_ms = now
         try:
             balance = await self._adapter.fetch_balance()
-            if balance.total_equity_usd > 0:
-                self._equity = balance.total_equity_usd
+            usdt = balance.details.get("USDT")
+            equity = usdt.equity if usdt is not None else balance.total_equity_usd
+            if equity > 0:
+                self._equity = equity
         except Exception as exc:  # noqa: BLE001 - 权益刷新失败不阻断主循环
             logger.debug("权益刷新失败: %s", exc)
 

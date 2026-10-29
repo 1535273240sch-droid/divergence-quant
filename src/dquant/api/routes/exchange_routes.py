@@ -75,7 +75,9 @@ async def _check(credentials: OkxCredentials | None) -> ExchangeConnectionStatus
     message = "OKX 公共行情接口已连接，未配置私有 API 密钥"
     if credentials is not None:
         try:
-            balance = (await adapter.fetch_balance()).total_equity_usd
+            balance_obj = await adapter.fetch_balance()
+            usdt = balance_obj.details.get("USDT")
+            balance = usdt.equity if usdt is not None else balance_obj.total_equity_usd
             private_api = True
             message = "OKX 模拟盘公共与私有接口均已连接"
         except ExchangeError as exc:
