@@ -1517,7 +1517,6 @@ class TradingEngine:
                 await self.maintenance_cycle()
                 record = await scheduler.poll(utc_now_ms())
                 if record is not None and record.run_id != last_run_id:
-                    last_run_id = record.run_id
                     logger.info(
                         "选币完成 run_id=%s candidates=%d",
                         record.run_id,
@@ -1527,6 +1526,8 @@ class TradingEngine:
                     await self.collect_once()
                     await self.strategy_and_risk_cycle(record)
                     await self.maintenance_cycle()
+                    # 只有采集+策略+维护全部成功后才标记该周期完成；失败下一轮可重试。
+                    last_run_id = record.run_id
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
