@@ -1,4 +1,4 @@
-"""实时数据桥：把引擎 SQLite 与 OKX 公共接口供给 API 层。
+﻿"""实时数据桥：把引擎 SQLite 与 OKX 公共接口供给 API 层。
 
 设计原则：
 
@@ -20,7 +20,7 @@ from typing import Any
 from dquant.adapters.okx import UrllibTransport
 
 _DEFAULT_DB = "data/engine.db"
-_OKX_TTL_SEC = 2.0
+_OKX_TTL_SEC = 10.0
 _cache: dict[str, tuple[float, Any]] = {}
 _OKX_BASE = "https://www.okx.com"
 _TIMEOUT_SEC = 8.0
