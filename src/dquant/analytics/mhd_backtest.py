@@ -91,7 +91,7 @@ def _instrument_ids(
     con: sqlite3.Connection, timeframe: str, requested: list[str] | None
 ) -> list[str]:
     if requested:
-        return [item for item in requested if item.endswith("-USDT-SWAP")]
+        return [str(item) for item in requested if item]
     rows = con.execute(
         "SELECT DISTINCT inst_id FROM candles WHERE bar=? ORDER BY inst_id", (timeframe,)
     ).fetchall()
@@ -357,6 +357,7 @@ def _simulate_instrument(
     atr_period: int = 14,
     fee_rate: float = 0.0,
     slippage_rate: float = 0.0,
+    funding_rate_8h: float = 0.0,
 ) -> tuple[list[MHDTrade], int]:
     if len(rows) < config.warmup_bars + 10:
         return [], 0
@@ -425,6 +426,9 @@ def _simulate_instrument(
         if side == "short":
             raw_return = -raw_return
         net_return = raw_return - 2.0 * fee_rate * 100.0
+        funding_periods = max(0.0, (ts[exit_index] - ts[entry_index]) / (8 * 3_600_000))
+        funding_pct = funding_rate_8h * funding_periods * 100.0
+        net_return = net_return - funding_pct if side == "long" else net_return + funding_pct
         trades.append(
             MHDTrade(
                 inst_id=inst_id,
@@ -510,6 +514,7 @@ def run_mhd_backtests(
     entry_window: int = 20,
     fee_rate: float = 0.0005,
     slippage_rate: float = 0.0002,
+    funding_rate_8h: float = 0.0001,
     persist: bool = True,
 ) -> list[MHDTimeframeStats]:
     """对指定周期执行历史回测；mhd_body = MHD 方向 + 实心转虚心入场 + 固定盈亏比。"""
@@ -569,6 +574,7 @@ def run_mhd_backtests(
                         atr_period=atr_period,
                         fee_rate=fee_rate,
                         slippage_rate=slippage_rate,
+                        funding_rate_8h=funding_rate_8h,
                     )
                 total_signals += signal_count
                 total_bars = max(total_bars, len(rows))
@@ -606,6 +612,7 @@ def run_mhd_backtests(
             entry_window=entry_window,
             fee_rate=fee_rate,
             slippage_rate=slippage_rate,
+            funding_rate_8h=funding_rate_8h,
         )
     return stats_list
 
@@ -623,6 +630,7 @@ def _persist_results(
     entry_window: int,
     fee_rate: float,
     slippage_rate: float,
+    funding_rate_8h: float,
 ) -> None:
     db_path = _db_path()
     engine = create_engine(f"sqlite:///{db_path.as_posix()}", future=True)
@@ -645,6 +653,7 @@ def _persist_results(
                         "entry_window": entry_window,
                         "fee_rate": fee_rate,
                         "slippage_rate": slippage_rate,
+                        "funding_rate_8h": funding_rate_8h,
                         "max_bars": max_bars,
                         "atr_mult": float(atr_mult),
                         "atr_period": atr_period,

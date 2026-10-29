@@ -33,6 +33,7 @@ class BacktestRequest(BaseModel):
     entry_window: int = Field(default=20, ge=1, le=200)
     fee_rate: float = Field(default=0.0005, ge=0, le=0.1)
     slippage_rate: float = Field(default=0.0002, ge=0, le=0.1)
+    funding_rate_8h: float = Field(default=0.0001, ge=-0.1, le=0.1)
 
 
 @router.get("/performance", summary="获取各周期最近一次 MHD 回测绩效")
@@ -70,6 +71,7 @@ async def run_backtest(req: BacktestRequest, user: CurrentUser) -> dict[str, Any
         entry_window=req.entry_window,
         fee_rate=req.fee_rate,
         slippage_rate=req.slippage_rate,
+        funding_rate_8h=req.funding_rate_8h,
     )
     return {
         "count": len(stats),
