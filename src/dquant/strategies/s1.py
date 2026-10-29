@@ -84,25 +84,21 @@ class S1TrendPullbackStrategy(BaseStrategy):
         split_exits = bool(self.params["split_exits"])
         if split_exits:
             first_r = as_decimal(self.params["first_take_profit_r"], "first_take_profit_r")
-            take_profits = [
-                TakeProfit(
-                    price=entry + risk * first_r
-                    if side == SignalSide.LONG
-                    else entry - risk * first_r,
-                    fraction=Decimal("0.5"),
-                )
-            ]
+            target_price = (
+                entry + risk * first_r if side == SignalSide.LONG else entry - risk * first_r
+            )
+            if target_price <= 0:
+                return []
+            take_profits = [TakeProfit(price=target_price, fraction=Decimal("0.5"))]
             exit_note = "1.5R 平半仓，剩余仓位使用移动止损"
         else:
             target_r = as_decimal(self.params["single_take_profit_r"], "single_take_profit_r")
-            take_profits = [
-                TakeProfit(
-                    price=entry + risk * target_r
-                    if side == SignalSide.LONG
-                    else entry - risk * target_r,
-                    fraction=Decimal("1"),
-                )
-            ]
+            target_price = (
+                entry + risk * target_r if side == SignalSide.LONG else entry - risk * target_r
+            )
+            if target_price <= 0:
+                return []
+            take_profits = [TakeProfit(price=target_price, fraction=Decimal("1"))]
             exit_note = "小资金不拆单，1R 保本后整体 2R 止盈"
 
         reason = (

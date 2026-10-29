@@ -312,6 +312,8 @@ def test_load_env_file_parses_and_never_overrides(tmp_path, monkeypatch) -> None
         encoding="utf-8",
     )
     monkeypatch.delenv("OKX_DEMO_API_KEY", raising=False)
+    monkeypatch.delenv("OKX_DEMO_API_SECRET", raising=False)
+    monkeypatch.delenv("OKX_DEMO_PASSPHRASE", raising=False)
     monkeypatch.setenv("EXISTING_VAR", "from-env")
 
     import os

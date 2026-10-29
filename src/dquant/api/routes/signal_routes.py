@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response, status
 
 from dquant.api import live_data
 from dquant.api.audit import AuditService
@@ -43,6 +43,20 @@ def populate_mock_signal(signal_data: dict[str, Any]) -> None:
     """工具函数：注入模拟待确认信号（供开发与集成测试调用）。"""
     sig_id = signal_data["signal_id"]
     _pending_signals_store[sig_id] = signal_data
+
+
+@router.api_route("/{signal_id}/confirm", methods=["GET"], include_in_schema=False)
+async def confirm_signal_order_get_forbidden(signal_id: str) -> Response:
+    """显式拒绝 GET 确认：交易动作必须使用 POST。
+
+    FastAPI/Starlette 新版本对路径存在但方法不匹配的请求返回 404，
+    这里固定返回 405，保证安全契约与测试口径一致。
+    """
+
+    return Response(
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        headers={"Allow": "POST"},
+    )
 
 
 def _confirmation_token(signal_id: str, user: dict[str, Any] | None, now: float) -> str | None:

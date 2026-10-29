@@ -89,6 +89,8 @@ class S3CounterTrendStrategy(BaseStrategy):
         second_target = (
             entry + risk * Decimal("2") if side == SignalSide.LONG else entry - risk * Decimal("2")
         )
+        if second_target <= 0 or ctx.ma200 <= 0:
+            return []
         take_profits = [
             TakeProfit(price=ctx.ma200, fraction=Decimal("0.5")),
             TakeProfit(price=second_target, fraction=Decimal("0.5")),
