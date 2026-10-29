@@ -20,6 +20,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from dquant.contracts import CandleBar
+from dquant.core.indicators import atr as atr_series
 from dquant.core.mhd import MHDConfig, detect_mhd
 from dquant.db.models import BacktestRunModel, Base
 from dquant.strategies.atr_stop import initial_stop, trailing_stop
@@ -353,6 +354,7 @@ def _simulate_instrument(
     config: MHDConfig,
     atr_mult: Decimal,
     *,
+    atr_period: int = 14,
     fee_rate: float = 0.0,
     slippage_rate: float = 0.0,
 ) -> tuple[list[MHDTrade], int]:
@@ -364,6 +366,7 @@ def _simulate_instrument(
     closes = [float(row[4]) for row in rows]
     ts = [int(row[0]) for row in rows]
     result = detect_mhd(highs, lows, closes, config)
+    atr_values = atr_series(highs, lows, closes, atr_period)
     signals = sorted(result.signals, key=lambda item: (item.confirmed_index, item.d))
     trades: list[MHDTrade] = []
     last_exit_index = -1
@@ -377,7 +380,7 @@ def _simulate_instrument(
             if signal.kind == "bottom"
             else raw_entry * (1.0 - slippage_rate)
         )
-        atr_entry = result.atr[entry_index]
+        atr_entry = atr_values[entry_index]
         if not (atr_entry == atr_entry) or atr_entry <= 0:
             continue
         side = "short" if signal.kind == "top" else "long"
@@ -391,7 +394,7 @@ def _simulate_instrument(
         raw_exit = closes[-1]
         reason = "end_of_data"
         for index in range(entry_index + 1, len(rows)):
-            atr_now = result.atr[index]
+            atr_now = atr_values[index]
             if not (atr_now == atr_now) or atr_now <= 0:
                 atr_now = atr_entry
             atr_decimal = Decimal(str(float(atr_now)))
@@ -561,8 +564,9 @@ def run_mhd_backtests(
                         inst_id,
                         timeframe,
                         rows,
-                        MHDConfig(atr_period=atr_period),
+                        MHDConfig(),
                         atr_mult,
+                        atr_period=atr_period,
                         fee_rate=fee_rate,
                         slippage_rate=slippage_rate,
                     )

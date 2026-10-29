@@ -149,13 +149,17 @@
       holder.innerHTML = '<div class="agent-loading">还没有回测记录，点上方按钮运行。</div>';
       return;
     }
-    var html = '<table><thead><tr><th>周期</th><th>交易</th><th>胜率</th><th>总收益</th><th>回撤</th><th>盈亏比</th><th>均持仓</th></tr></thead><tbody>';
+    var html = '<table><thead><tr><th>周期</th><th>ATR</th><th>交易</th><th>胜率</th><th>总收益</th><th>回撤</th><th>盈亏比</th><th>均持仓</th></tr></thead><tbody>';
     rows.forEach(function (row) {
       var m = row.metrics || {};
+      var p = row.params || {};
+      var atr = (p.atr_mult == null ? "—" : Number(p.atr_mult).toFixed(1)) + "/" +
+        (p.atr_period == null ? "—" : p.atr_period);
       var ret = Number(m.total_return_pct || 0);
       var cls = ret >= 0 ? "up" : "down";
       var pf = m.profit_factor == null ? "—" : Number(m.profit_factor).toFixed(2);
       html += "<tr><td>" + esc(row.timeframe) + "</td>" +
+        "<td>" + atr + "</td>" +
         "<td>" + Number(m.trades || 0) + "</td>" +
         "<td>" + Number(m.win_rate_pct || 0).toFixed(1) + "%</td>" +
         '<td class="' + cls + '">' + ret.toFixed(2) + "%</td>" +
