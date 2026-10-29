@@ -87,6 +87,6 @@ def test_risk_manager_uses_fixed_fraction_when_position_pct_present() -> None:
         )
     )
     assert decision.approved is True
-    assert decision.qty == Decimal("50")
+    assert decision.qty == Decimal("150")
     assert "fixed_fraction" in decision.detail
     assert "position_pct=0.5" in decision.detail

@@ -133,19 +133,22 @@ def calculate_fixed_fraction_size(
     equity: Decimal | int | float | str,
     position_pct: Decimal | int | float | str,
     position_multiplier: Decimal | int | float | str,
+    leverage: Decimal | int | float | str = Decimal("1"),
     entry_price: Decimal | int | float | str,
     instrument: Instrument,
 ) -> PositionSizing:
-    """按账户权益固定比例计算合约张数（MHD 默认 50% 仓位）。
+    """按账户权益固定比例计算合约张数（MHD 默认 50% 保证金仓位）。
 
-    ``position_pct`` 是名义仓位占权益的比例，``position_multiplier`` 是前端可调的
-    仓位倍数；二者相乘得到目标名义价值。交易所杠杆用于保证金占用，不在此处放大
-    名义仓位，避免重复加杠杆。
+    ``position_pct`` 是保证金占权益的比例，``position_multiplier`` 是前端可调的
+    仓位倍数，``leverage`` 是合约杠杆；三者共同决定目标名义价值：
+
+        notional = equity × position_pct × position_multiplier × leverage
     """
 
     equity_decimal = _as_decimal(equity, "equity")
     pct_decimal = _as_decimal(position_pct, "position_pct")
     multiplier_decimal = _as_decimal(position_multiplier, "position_multiplier")
+    leverage_decimal = _as_decimal(leverage, "leverage")
     entry_decimal = _as_decimal(entry_price, "entry_price")
 
     if equity_decimal <= 0:
@@ -154,12 +157,14 @@ def calculate_fixed_fraction_size(
         raise RiskInputError("position_pct must be greater than 0 and at most 1")
     if not 0 < multiplier_decimal <= 3:
         raise RiskInputError("position_multiplier must be greater than 0 and at most 3")
+    if not 1 <= leverage_decimal <= 20:
+        raise RiskInputError("leverage must be within [1, 20]")
     if entry_decimal <= 0:
         raise RiskInputError("entry_price must be positive")
     if instrument.ct_val <= 0 or instrument.lot_sz <= 0 or instrument.min_sz <= 0:
         raise RiskInputError("instrument contract value and size steps must be positive")
 
-    notional = equity_decimal * pct_decimal * multiplier_decimal
+    notional = equity_decimal * pct_decimal * multiplier_decimal * leverage_decimal
     risk_per_contract = entry_decimal * instrument.ct_val
     raw_qty = notional / risk_per_contract
     qty = round_down_to_step(raw_qty, instrument.lot_sz)

@@ -893,10 +893,10 @@ class TradingEngine:
         mhd = self._strategy_for("MHD")
         if mhd is None:
             return
-        pct, multiplier, _ = self._sizing_params(mhd)
+        pct, multiplier, leverage = self._sizing_params(mhd)
         if pct is None:
             return
-        signature = (pct, multiplier)
+        signature = (pct, multiplier, leverage)
         if self._applied_sizing == signature:
             return
         positions = [
@@ -911,6 +911,7 @@ class TradingEngine:
                 equity=self._equity,
                 position_pct=pct,
                 position_multiplier=multiplier,
+                leverage=leverage,
                 price=price,
                 inst_id=position.inst_id,
             )
@@ -922,13 +923,14 @@ class TradingEngine:
                     price=price,
                 )
                 logger.info(
-                    "模拟仓位按新参数调整 %s %s: %s -> %s 张 (pct=%s, multiplier=%s)",
+                    "模拟仓位按新参数调整 %s %s: %s -> %s 张 (pct=%s, multiplier=%s, leverage=%s)",
                     position.inst_id,
                     position.pos_side.value,
                     position.size,
                     None if updated is None else updated.size,
                     pct,
                     multiplier,
+                    leverage,
                 )
         self._applied_sizing = signature
 
@@ -1124,8 +1126,9 @@ class TradingEngine:
                         record.run_id,
                         len(record.candidates),
                     )
-                    await self.strategy_and_risk_cycle(record)
+                    # 必须先采集刚收盘的 4H K 线，MHD 才能在确认那根收盘生成信号。
                     await self.collect_once()
+                    await self.strategy_and_risk_cycle(record)
                     await self.maintenance_cycle()
             except asyncio.CancelledError:
                 raise

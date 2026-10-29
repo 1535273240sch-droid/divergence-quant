@@ -106,12 +106,12 @@
     var pct = num("mhdPct", 50) / 100;
     var mult = num("mhdMult", 1);
     var lev = num("mhdLev", 3);
-    var notional = balance * pct * mult;
-    var margin = lev > 0 ? notional / lev : 0;
+    var margin = balance * pct * mult;
+    var notional = margin * lev;
     el("mhdPreview").innerHTML = balance > 0
-      ? "预计名义仓位 <b>≈ " + notional.toFixed(2) + " USDT</b> · 预计保证金 ≈ " +
-        margin.toFixed(2) + " USDT · " + lev + "x"
-      : "登录后显示预计名义仓位";
+      ? "预计保证金 <b>≈ " + margin.toFixed(2) + " USDT</b> · 名义仓位 ≈ " +
+        notional.toFixed(2) + " USDT · " + lev + "x"
+      : "登录后显示预计保证金与名义仓位";
   }
 
   function refreshPositions() {

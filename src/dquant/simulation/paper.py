@@ -165,6 +165,7 @@ class PaperBroker:
         equity: Decimal,
         position_pct: Decimal,
         position_multiplier: Decimal,
+        leverage: Decimal = Decimal("1"),
         price: Decimal,
         inst_id: str,
     ) -> Decimal:
@@ -175,6 +176,7 @@ class PaperBroker:
             equity=equity,
             position_pct=position_pct,
             position_multiplier=position_multiplier,
+            leverage=leverage,
             entry_price=price,
             instrument=instrument,
         )

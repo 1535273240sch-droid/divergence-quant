@@ -278,6 +278,7 @@ class RiskManager:
                 equity=normalized.equity,
                 position_pct=normalized.position_pct,
                 position_multiplier=normalized.position_multiplier,
+                leverage=normalized.leverage,
                 entry_price=signal.price,
                 instrument=instrument,
             )
