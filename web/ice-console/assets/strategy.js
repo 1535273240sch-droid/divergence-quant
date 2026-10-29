@@ -190,7 +190,7 @@
       body: {
         timeframes: ["5m", "15m", "1H", "4H", "1D"],
         max_bars: 5000,
-        entry_mode: "mhd_body",
+        entry_mode: "mhd",
         rr_ratio: 1.0,
         mhd_filter: true,
         mhd_filter_lookback: 20,

@@ -512,7 +512,7 @@
       return Promise.resolve();
     }
     var inst = (CQ.SYMBOLS[ui.symbol] || {}).inst || ui.symbol + "-USDT-SWAP";
-    return http("/mhd/trades?timeframe=1H&mode=mhd_body").then(function (data) {
+    return http("/mhd/trades?timeframe=1H&mode=mhd").then(function (data) {
       var trades = (data && data.trades) || [];
       var times = {};
       (CQ.state.market && CQ.state.market.candles ? CQ.state.market.candles : []).forEach(function (c) {

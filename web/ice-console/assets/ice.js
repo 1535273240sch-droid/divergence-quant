@@ -353,7 +353,7 @@
     });
 
     var candleSeries = chart.addSeries(LWC.CandlestickSeries, {
-      upColor: "rgba(255,255,255,0)",
+      upColor: "#059669",
       downColor: "#E11D48",
       borderUpColor: "#059669",
       borderDownColor: "#E11D48",

@@ -352,6 +352,9 @@ def _simulate_instrument(
     rows: list[tuple],
     config: MHDConfig,
     atr_mult: Decimal,
+    *,
+    fee_rate: float = 0.0,
+    slippage_rate: float = 0.0,
 ) -> tuple[list[MHDTrade], int]:
     if len(rows) < config.warmup_bars + 10:
         return [], 0
@@ -368,19 +371,24 @@ def _simulate_instrument(
         entry_index = signal.confirmed_index
         if entry_index <= last_exit_index or entry_index >= len(rows) - 1:
             continue
-        entry = Decimal(str(closes[entry_index]))
+        raw_entry = closes[entry_index]
+        entry = (
+            raw_entry * (1.0 + slippage_rate)
+            if signal.kind == "bottom"
+            else raw_entry * (1.0 - slippage_rate)
+        )
         atr_entry = result.atr[entry_index]
         if not (atr_entry == atr_entry) or atr_entry <= 0:
             continue
         side = "short" if signal.kind == "top" else "long"
         try:
             stop = initial_stop(
-                side, entry, Decimal(str(float(atr_entry))), atr_mult
+                side, Decimal(str(entry)), Decimal(str(float(atr_entry))), atr_mult
             )
         except ValueError:
             continue
         exit_index = len(rows) - 1
-        exit_price = closes[-1]
+        raw_exit = closes[-1]
         reason = "end_of_data"
         for index in range(entry_index + 1, len(rows)):
             atr_now = result.atr[index]
@@ -392,7 +400,7 @@ def _simulate_instrument(
                 stop = trailing_stop(side, Decimal(str(reference)), atr_decimal, atr_mult, stop)
                 if lows[index] <= float(stop):
                     exit_index = index
-                    exit_price = min(opens[index], float(stop))
+                    raw_exit = min(opens[index], float(stop))
                     reason = "atr_stop"
                     break
             else:
@@ -400,24 +408,29 @@ def _simulate_instrument(
                 stop = trailing_stop(side, Decimal(str(reference)), atr_decimal, atr_mult, stop)
                 if highs[index] >= float(stop):
                     exit_index = index
-                    exit_price = max(opens[index], float(stop))
+                    raw_exit = max(opens[index], float(stop))
                     reason = "atr_stop"
                     break
+        exit_price = (
+            raw_exit * (1.0 - slippage_rate)
+            if side == "long"
+            else raw_exit * (1.0 + slippage_rate)
+        )
         if entry <= 0 or exit_price <= 0:
             continue
-        entry_float = float(entry)
-        raw_return = (float(exit_price) - entry_float) / entry_float * 100
+        raw_return = (exit_price - entry) / entry * 100
         if side == "short":
             raw_return = -raw_return
+        net_return = raw_return - 2.0 * fee_rate * 100.0
         trades.append(
             MHDTrade(
                 inst_id=inst_id,
                 side=side,
                 entry_ts_ms=ts[entry_index],
                 exit_ts_ms=ts[exit_index],
-                entry_price=float(entry),
-                exit_price=float(exit_price),
-                return_pct=float(raw_return),
+                entry_price=entry,
+                exit_price=exit_price,
+                return_pct=net_return,
                 bars_held=exit_index - entry_index,
                 reason=reason,
             )
@@ -486,7 +499,7 @@ def run_mhd_backtests(
     inst_ids: list[str] | None = None,
     max_bars: int = DEFAULT_MAX_BARS,
     atr_mult: Decimal = DEFAULT_ATR_MULT,
-    entry_mode: str = "mhd_body",
+    entry_mode: str = "mhd",
     rr_ratio: float = 1.0,
     mhd_filter: bool = True,
     mhd_filter_lookback: int = 20,
@@ -542,7 +555,13 @@ def run_mhd_backtests(
                     )
                 else:
                     trades, signal_count = _simulate_instrument(
-                        inst_id, timeframe, rows, MHDConfig(), atr_mult
+                        inst_id,
+                        timeframe,
+                        rows,
+                        MHDConfig(),
+                        atr_mult,
+                        fee_rate=fee_rate,
+                        slippage_rate=slippage_rate,
                     )
                 total_signals += signal_count
                 total_bars = max(total_bars, len(rows))
@@ -674,7 +693,7 @@ def latest_results() -> list[dict[str, Any]]:
     return sorted(latest.values(), key=lambda item: order.get(item["timeframe"], 99))
 
 
-def latest_trades(timeframe: str = "1H", entry_mode: str = "body") -> list[dict[str, Any]]:
+def latest_trades(timeframe: str = "1H", entry_mode: str = "mhd") -> list[dict[str, Any]]:
     """读取某周期、某入场模式最近一次回测保存的逐笔交易。"""
 
     db_path = _db_path()

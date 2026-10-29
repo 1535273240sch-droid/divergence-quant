@@ -23,7 +23,7 @@ class BacktestRequest(BaseModel):
     timeframes: list[str] = Field(default_factory=lambda: list(DEFAULT_TIMEFRAMES))
     inst_ids: list[str] | None = None
     max_bars: int = Field(default=5000, ge=200, le=10000)
-    entry_mode: str = Field(default="mhd_body", pattern="^(body|mhd|mhd_body)$")
+    entry_mode: str = Field(default="mhd", pattern="^(body|mhd|mhd_body)$")
     rr_ratio: float = Field(default=1.0, gt=0, le=10)
     mhd_filter: bool = True
     mhd_filter_lookback: int = Field(default=20, ge=1, le=200)
@@ -43,7 +43,7 @@ async def get_performance(user: OptionalUser) -> dict[str, Any]:
 async def get_trades(
     user: OptionalUser,
     timeframe: str = "1H",
-    mode: str = "body",
+    mode: str = "mhd",
 ) -> dict[str, Any]:
     del user
     trades = latest_trades(timeframe, entry_mode=mode)
