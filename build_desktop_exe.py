@@ -252,7 +252,7 @@ def main() -> int:
     _verify_databases(dist_dir)
 
     zip_base = root / "dist" / f"{APP_NAME}-{version}-Windows-x64"
-    zip_path = zip_base.with_suffix(".zip")
+    zip_path = zip_base.parent / f"{zip_base.name}.zip"
     if zip_path.exists():
         zip_path.unlink()
     print(f">>> 生成便携压缩包: {zip_path}")
