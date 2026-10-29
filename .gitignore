@@ -22,8 +22,12 @@ venv/
 logs/
 reports/generated/
 data/local/
+data/logs/
+data/.jwt_secret
+data/**/.jwt_secret
 data/*.enc
 web-server.log
+desktop_debug.log
 build/
 dist/
 

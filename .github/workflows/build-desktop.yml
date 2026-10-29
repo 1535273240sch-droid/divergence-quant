@@ -6,19 +6,25 @@ on:
       - main
       - desktop-release
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: desktop-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-windows:
-    name: Build Windows Standalone Executable (.exe)
-    runs-on: windows-latest
+    name: Build Windows Self-Contained Desktop Package
+    runs-on: windows-2022
+    timeout-minutes: 60
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
     steps:
       - name: Checkout Code
@@ -30,27 +36,106 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
+      - name: Resolve Version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF.Substring(11)
+          } else {
+            $version = '1.1.0'
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Output "Build version: $version"
+
       - name: Install Build Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
-          pip install PySide6 uvicorn fastapi pydantic pyinstaller cryptography pyyaml Pillow
+          python -m pip install -e ".[dev,desktop]"
+          python -m pip install "uvicorn[standard]>=0.30,<1"
 
-      - name: Build Standalone Executable & Package
+      - name: Run Test Suite
+        run: python -m pytest -q
+
+      - name: Run Lint
+        run: python -m ruff check src tests
+
+      - name: Build Self-Contained Desktop Package
+        run: python build_desktop_exe.py --version ${{ steps.version.outputs.version }}
+
+      - name: Verify Portable Package
+        shell: pwsh
         run: |
-          python build_desktop_exe.py
+          $version = "${{ steps.version.outputs.version }}"
+          $zip = "dist/DivergenceQuant-$version-Windows-x64.zip"
+          if (-not (Test-Path $zip)) { throw "Missing portable package: $zip" }
+          if (Test-Path "dist/smoke") { Remove-Item "dist/smoke" -Recurse -Force }
+          Expand-Archive -Path $zip -DestinationPath "dist/smoke" -Force
+          $exe = "dist/smoke/DivergenceQuant/DivergenceQuant.exe"
+          if (-not (Test-Path $exe)) { throw "Missing packaged EXE: $exe" }
+          $process = Start-Process -FilePath $exe -ArgumentList "--headless-smoke", "--port", "0" -PassThru
+          if (-not $process.WaitForExit(120000)) {
+            $process.Kill()
+            throw "Packaged EXE smoke test timed out"
+          }
+          if ($process.ExitCode -ne 0) { throw "Packaged EXE smoke test failed: $($process.ExitCode)" }
+          Write-Output "Portable package smoke test passed."
 
-      - name: Upload Build Artifact
+      - name: Build Windows Installer
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "/DMyAppVersion=${{ steps.version.outputs.version }}" "installer\DivergenceQuant.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $LASTEXITCODE" }
+
+      - name: Generate SHA256 Checksums
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $installer = "dist/DivergenceQuant-Setup-$version-x64.exe"
+          $zip = "dist/DivergenceQuant-$version-Windows-x64.zip"
+          if (-not (Test-Path $installer)) { throw "Missing installer: $installer" }
+          if (-not (Test-Path $zip)) { throw "Missing portable package: $zip" }
+          $lines = @()
+          foreach ($file in @($installer, $zip)) {
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            $lines += "$hash  $(Split-Path $file -Leaf)"
+          }
+          $lines | Set-Content "dist/SHA256SUMS.txt" -Encoding ASCII
+          Get-Content "dist/SHA256SUMS.txt"
+
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: DivergenceQuant-Windows-x64
-          path: dist/DivergenceQuant-Windows-x64.zip
-          retention-days: 14
+          name: DivergenceQuant-Desktop-${{ steps.version.outputs.version }}
+          path: |
+            dist/DivergenceQuant-${{ steps.version.outputs.version }}-Windows-x64.zip
+            dist/DivergenceQuant-Setup-${{ steps.version.outputs.version }}-x64.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
 
-      - name: Publish Release Package (on Tag)
+      - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/DivergenceQuant-Windows-x64.zip
+          name: DivergenceQuant Desktop v${{ steps.version.outputs.version }}
+          body: |
+            DivergenceQuant Windows 桌面版 v${{ steps.version.outputs.version }}
+
+            - 自包含运行：内置 Python、PySide6/QtWebEngine、FastAPI、前端控制台与 SQLite
+            - 安装版：DivergenceQuant-Setup-*.exe（按当前用户安装，无需管理员权限）
+            - 便携版：DivergenceQuant-*-Windows-x64.zip（解压后双击 DivergenceQuant.exe）
+            - 数据库：engine.db / users.db / factors.db 随包分发，运行数据保存在软件目录 data/
+            - 校验：请使用 SHA256SUMS.txt 核对下载文件
+          files: |
+            dist/DivergenceQuant-${{ steps.version.outputs.version }}-Windows-x64.zip
+            dist/DivergenceQuant-Setup-${{ steps.version.outputs.version }}-x64.exe
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

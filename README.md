@@ -10,8 +10,55 @@ DivergenceQuant 是面向 OKX USDT 永续合约的高性能多币种量化交易
 核心设计基于 **MACD 柱段背离检测**、**SMA200/EMA200 双轨趋势防抖分类**、**多因子动态选币**、**全事件驱动多币种回测内核**、**AI 协同多重避雷审阅** 以及 **三权分立安全交易执行与自动对账**。
 
 > **当前系统版本**: `v0.3.0-alpha` (OKX 模拟盘、多用户账户、实时控制台与因子实验室整合版)
+> **桌面端版本**: `Desktop v1.1.0`（自包含 Windows 安装包 / 便携版）
 > **运行模式**: **OKX 模拟盘模式优先（严格禁止未经审核连接实盘）**  
 > **详细版本说明**: 详见 [更新说明.md](./更新说明.md) 与 [未完成事项.md](./未完成事项.md)
+
+---
+
+## Windows 桌面版（推荐）
+
+桌面版把 **Python 运行时、PySide6/QtWebEngine、FastAPI 后端、前端控制台、配置文件和 SQLite 数据库**全部打包在一起，用户无需安装 Python、PostgreSQL、Redis 或 Docker。
+
+### 下载
+
+前往仓库的 **Releases** 页面下载对应版本：
+
+- **安装版**：`DivergenceQuant-Setup-1.1.0-x64.exe`
+  - 按当前用户安装到 `%LOCALAPPDATA%\Programs\DivergenceQuant`，无需管理员权限；
+  - 自动创建开始菜单快捷方式，可选桌面快捷方式；
+  - 自带卸载器，升级/卸载不会覆盖或删除 `data/` 中的用户数据库。
+- **便携版**：`DivergenceQuant-1.1.0-Windows-x64.zip`
+  - 解压到任意目录，双击 `DivergenceQuant.exe` 即可运行；
+  - 所有数据保存在解压目录的 `data/` 内。
+
+### 数据与数据库
+
+桌面版只使用内置 SQLite，不依赖外部数据库服务。软件目录下的 `data/` 包含：
+
+| 文件 | 用途 |
+| --- | --- |
+| `data/engine.db` | 行情、K 线、信号、风控、选币等引擎数据 |
+| `data/users.db` | 本地多用户账户 |
+| `data/factors.db` | 因子实验室 |
+| `data/okx-credentials.enc` | 用户 OKX 凭据（Fernet 加密，首次绑定时生成） |
+| `data/.jwt_secret` | 本机 JWT 签名密钥（首次启动自动生成） |
+
+备份时直接复制整个 `data/` 目录即可；换机时把 `data/` 放回软件目录即可恢复。
+
+> 安装包未做代码签名，Windows SmartScreen 可能提示“未知发布者”。请核对 Release 中的 `SHA256SUMS.txt` 后再运行。
+
+### 从源码构建桌面版
+
+所有 Windows 构建均在 GitHub Actions 的 `windows-2022` 上完成：
+
+```bash
+# 本地构建（需要 Python 3.12）
+python -m pip install -e ".[dev,desktop]"
+python build_desktop_exe.py --version 1.1.0
+```
+
+产物：`dist/DivergenceQuant-1.1.0-Windows-x64.zip`。
 
 ---
 
