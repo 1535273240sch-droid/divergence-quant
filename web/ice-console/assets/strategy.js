@@ -65,6 +65,7 @@
     loadStrategy();
     loadAccount();
     refreshPositions();
+    loadPerformance();
   }
 
   function loadStrategy() {
@@ -141,6 +142,70 @@
     }).catch(function () {});
   }
 
+  function renderPerformance(rows) {
+    var holder = el("mhdPerformance");
+    if (!holder) return;
+    if (!rows || !rows.length) {
+      holder.innerHTML = '<div class="agent-loading">还没有回测记录，点上方按钮运行。</div>';
+      return;
+    }
+    var html = '<table><thead><tr><th>周期</th><th>交易</th><th>胜率</th><th>总收益</th><th>回撤</th><th>盈亏比</th><th>均持仓</th></tr></thead><tbody>';
+    rows.forEach(function (row) {
+      var m = row.metrics || {};
+      var ret = Number(m.total_return_pct || 0);
+      var cls = ret >= 0 ? "up" : "down";
+      var pf = m.profit_factor == null ? "—" : Number(m.profit_factor).toFixed(2);
+      html += "<tr><td>" + esc(row.timeframe) + "</td>" +
+        "<td>" + Number(m.trades || 0) + "</td>" +
+        "<td>" + Number(m.win_rate_pct || 0).toFixed(1) + "%</td>" +
+        '<td class="' + cls + '">' + ret.toFixed(2) + "%</td>" +
+        "<td>" + Number(m.max_drawdown_pct || 0).toFixed(2) + "%</td>" +
+        "<td>" + pf + "</td>" +
+        "<td>" + Number(m.avg_hold_bars || 0).toFixed(1) + " bar</td></tr>";
+    });
+    holder.innerHTML = html + "</tbody></table>";
+  }
+
+  function loadPerformance() {
+    http("/mhd/performance").then(function (data) {
+      renderPerformance((data && data.results) || []);
+    }).catch(function () {
+      var holder = el("mhdPerformance");
+      if (holder) holder.innerHTML = '<div class="agent-loading">绩效数据加载失败</div>';
+    });
+  }
+
+  function runBacktest() {
+    if (!token()) {
+      toast("请先登录", true);
+      return;
+    }
+    var btn = el("mhdRunBacktest");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "回测运行中…";
+    }
+    http("/mhd/backtest", {
+      method: "POST",
+      body: {
+        timeframes: ["5m", "15m", "1H", "4H", "1D"],
+        max_bars: 1500
+      }
+    }).then(function (res) {
+      CQ.toast("MHD 多周期回测完成");
+      var results = (res && res.results) || [];
+      renderPerformance(results);
+      loadPerformance();
+    }).catch(function (err) {
+      CQ.toast((err && err.message) || "回测失败", true);
+    }).finally(function () {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "运行周期回测";
+      }
+    });
+  }
+
   function save() {
     if (!token()) {
       toast("请先登录", true);
@@ -180,6 +245,7 @@
     if (el("strategyOpen")) el("strategyOpen").addEventListener("click", open);
     if (el("strategyClose")) el("strategyClose").addEventListener("click", close);
     if (el("mhdSave")) el("mhdSave").addEventListener("click", save);
+    if (el("mhdRunBacktest")) el("mhdRunBacktest").addEventListener("click", runBacktest);
     ["mhdPct", "mhdMult", "mhdLev"].forEach(function (id) {
       if (el(id)) el(id).addEventListener("input", preview);
     });
@@ -189,6 +255,7 @@
     if (el("strategyOpen")) el("strategyOpen").addEventListener("click", open);
     if (el("strategyClose")) el("strategyClose").addEventListener("click", close);
     if (el("mhdSave")) el("mhdSave").addEventListener("click", save);
+    if (el("mhdRunBacktest")) el("mhdRunBacktest").addEventListener("click", runBacktest);
     ["mhdPct", "mhdMult", "mhdLev"].forEach(function (id) {
       if (el(id)) el(id).addEventListener("input", preview);
     });

@@ -3164,3 +3164,28 @@ html[data-theme="obsidian"] .table-row:hover {
 }
 .acct-position .up { color: var(--bull-bright); }
 .acct-position .down { color: var(--bear-bright); }
+
+.mhd-perf-actions {
+  margin: 8px 0;
+}
+.mhd-perf {
+  overflow-x: auto;
+}
+.mhd-perf table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+.mhd-perf th,
+.mhd-perf td {
+  padding: 5px 4px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  text-align: right;
+  white-space: nowrap;
+}
+.mhd-perf th:first-child,
+.mhd-perf td:first-child {
+  text-align: left;
+}
+.mhd-perf .up { color: var(--bull-bright); }
+.mhd-perf .down { color: var(--bear-bright); }

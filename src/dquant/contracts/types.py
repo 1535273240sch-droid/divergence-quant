@@ -23,6 +23,8 @@ class InstrumentState(StrEnum):
 class CandleBar(StrEnum):
     """系统支持的标准 K 线周期。"""
 
+    FIVE_MINUTE = "5m"
+    FIFTEEN_MINUTE = "15m"
     ONE_HOUR = "1H"
     FOUR_HOUR = "4H"
     ONE_DAY = "1D"

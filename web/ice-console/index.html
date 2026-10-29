@@ -12,7 +12,7 @@
     />
     <link rel="preload" href="fonts/jetbrains-mono-500.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="fonts/inter-500.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="assets/ice.css?v=20261029c7" />
+    <link rel="stylesheet" href="assets/ice.css?v=20261029c8" />
     <script>
       (function() {
         var t = localStorage.getItem('cq.theme') || 'obsidian';
@@ -192,6 +192,7 @@
               </div>
               <div class="chart-controls">
                 <div class="seg" id="tfSeg" role="group" aria-label="K 线周期">
+                  <button type="button" data-tf="5m">5m</button>
                   <button type="button" data-tf="15m">15m</button>
                   <button type="button" data-tf="1H">1H</button>
                   <button class="is-active" type="button" data-tf="4H">4H</button>
@@ -394,10 +395,12 @@
           <h3>运行周期 <span class="micro">TIMEFRAME</span></h3>
           <label class="acct-label">周期选择
             <select id="mhdTimeframe">
+              <option value="5m">5m</option>
+              <option value="15m">15m</option>
               <option value="1H" selected>1H（默认）</option>
               <option value="4H">4H</option>
               <option value="1D">1D</option>
-              <option value="AUTO">自动多周期（1H+4H+1D 取最强）</option>
+              <option value="AUTO">自动多周期（5m+15m+1H+4H+1D 取最强）</option>
             </select>
           </label>
           <h3>仓位与杠杆 <span class="micro">HOT RELOAD</span></h3>
@@ -421,6 +424,14 @@
         <section class="acct-block">
           <h3>当前 MHD 模拟持仓</h3>
           <div id="mhdPositions" class="mhd-positions"><div class="agent-loading">登录后加载持仓…</div></div>
+        </section>
+        <section class="acct-block">
+          <h3>MHD 多周期绩效 <span class="micro">BACKTEST</span></h3>
+          <p class="factor-hint">同一套 MHD 信号与 ATR 移动止损，分别回测 5m、15m、1H、4H、1D，结果保存到后端数据库。</p>
+          <div class="mhd-perf-actions">
+            <button class="btn btn-primary" id="mhdRunBacktest" type="button">运行周期回测</button>
+          </div>
+          <div class="mhd-perf" id="mhdPerformance"><div class="agent-loading">正在加载历史绩效…</div></div>
         </section>
       </div>
     </aside>
@@ -465,9 +476,9 @@
 
     <script src="vendor/lightweight-charts.standalone.production.js"></script>
     <script>window.CQ_LIVE = 1;</script>
-    <script src="assets/ice.js?v=20261029c7"></script>
-    <script src="assets/live.js?v=20261029c7"></script>
-    <script src="assets/factors.js?v=20261029c7"></script>
-    <script src="assets/strategy.js?v=20261029c7"></script>
+    <script src="assets/ice.js?v=20261029c8"></script>
+    <script src="assets/live.js?v=20261029c8"></script>
+    <script src="assets/factors.js?v=20261029c8"></script>
+    <script src="assets/strategy.js?v=20261029c8"></script>
   </body>
 </html>

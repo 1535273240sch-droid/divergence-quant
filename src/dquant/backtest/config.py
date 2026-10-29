@@ -27,18 +27,24 @@ MILLISECONDS_PER_DAY = 86_400_000
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 BAR_DURATION_MS: dict[CandleBar, int] = {
+    CandleBar.FIVE_MINUTE: 300_000,
+    CandleBar.FIFTEEN_MINUTE: 900_000,
     CandleBar.ONE_HOUR: 3_600_000,
     CandleBar.FOUR_HOUR: 14_400_000,
     CandleBar.ONE_DAY: MILLISECONDS_PER_DAY,
 }
 
 BAR_RANK: dict[CandleBar, int] = {
-    CandleBar.ONE_HOUR: 0,
-    CandleBar.FOUR_HOUR: 1,
-    CandleBar.ONE_DAY: 2,
+    CandleBar.FIVE_MINUTE: 0,
+    CandleBar.FIFTEEN_MINUTE: 1,
+    CandleBar.ONE_HOUR: 2,
+    CandleBar.FOUR_HOUR: 3,
+    CandleBar.ONE_DAY: 4,
 }
 
 PERIODS_PER_YEAR: dict[CandleBar, int] = {
+    CandleBar.FIVE_MINUTE: 288 * 365,
+    CandleBar.FIFTEEN_MINUTE: 96 * 365,
     CandleBar.ONE_HOUR: 24 * 365,
     CandleBar.FOUR_HOUR: 6 * 365,
     CandleBar.ONE_DAY: 365,
@@ -110,7 +116,15 @@ def is_bar_aligned(ts_ms: int, bar: CandleBar) -> bool:
     except (OverflowError, OSError, ValueError):
         return False
     if moment.minute != 0 or moment.second != 0 or moment.microsecond != 0:
+        if bar is CandleBar.FIVE_MINUTE:
+            return moment.minute % 5 == 0 and moment.second == 0 and moment.microsecond == 0
+        if bar is CandleBar.FIFTEEN_MINUTE:
+            return moment.minute % 15 == 0 and moment.second == 0 and moment.microsecond == 0
         return False
+    if bar is CandleBar.FIVE_MINUTE:
+        return True
+    if bar is CandleBar.FIFTEEN_MINUTE:
+        return True
     if bar is CandleBar.ONE_HOUR:
         return True
     if bar is CandleBar.FOUR_HOUR:

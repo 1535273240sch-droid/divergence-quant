@@ -96,8 +96,12 @@ class MHDDivergenceStrategy(BaseStrategy):
 
     def _validate_params(self) -> None:
         timeframe = str(self.params.get("timeframe", "1H")).strip().upper()
-        if timeframe not in {"1H", "4H", "1D", "AUTO"}:
-            raise StrategyInputError("timeframe must be one of 1H/4H/1D/AUTO")
+        if timeframe not in {"5M", "15M", "1H", "4H", "1D", "AUTO"}:
+            raise StrategyInputError("timeframe must be one of 5m/15m/1H/4H/1D/AUTO")
+        if timeframe == "5M":
+            timeframe = "5m"
+        elif timeframe == "15M":
+            timeframe = "15m"
         self.params["timeframe"] = timeframe
         pct = _decimal_param(self.params, "position_pct")
         multiplier = _decimal_param(self.params, "position_multiplier")
@@ -139,10 +143,16 @@ class MHDDivergenceStrategy(BaseStrategy):
         return candidate.inst_id.endswith("-USDT-SWAP")
 
     def _bars(self) -> list[CandleBar]:
-        timeframe = str(self.params.get("timeframe", "1H")).upper()
-        if timeframe == "AUTO":
-            return [CandleBar.ONE_HOUR, CandleBar.FOUR_HOUR, CandleBar.ONE_DAY]
-        return [CandleBar(timeframe)]
+        raw = str(self.params.get("timeframe", "1H"))
+        if raw.upper() == "AUTO":
+            return [
+                CandleBar.FIVE_MINUTE,
+                CandleBar.FIFTEEN_MINUTE,
+                CandleBar.ONE_HOUR,
+                CandleBar.FOUR_HOUR,
+                CandleBar.ONE_DAY,
+            ]
+        return [CandleBar(raw)]
 
     @staticmethod
     def _candles_for(ctx: StrategyContext, bar: CandleBar) -> tuple:
@@ -229,7 +239,10 @@ class MHDDivergenceStrategy(BaseStrategy):
         position = ctx.position
         if position is None:
             return []
-        bar = self._bars()[0]
+        if str(self.params.get("timeframe", "1H")).upper() == "AUTO":
+            bar = CandleBar.ONE_HOUR
+        else:
+            bar = self._bars()[0]
         candles = self._candles_for(ctx, bar)
         if not candles or len(candles) < self._config().warmup_bars:
             return []

@@ -22,6 +22,8 @@ DAILY_BEIJING_OPEN_OFFSET_MS = 57_600_000
 DAY_MS = 86_400_000
 
 BAR_DURATION_MS: dict[CandleBar, int] = {
+    CandleBar.FIVE_MINUTE: 300_000,
+    CandleBar.FIFTEEN_MINUTE: 900_000,
     CandleBar.ONE_HOUR: 3_600_000,
     CandleBar.FOUR_HOUR: 14_400_000,
     CandleBar.ONE_DAY: DAY_MS,

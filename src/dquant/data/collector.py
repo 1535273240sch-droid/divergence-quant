@@ -243,7 +243,7 @@ def update_incremental(
     *,
     lookback_ms: int,
     now_ms: int | None = None,
-    max_pages: int = 20,
+    max_pages: int = 60,
 ) -> BackfillStats:
     """增量拉取最新 K 线并入库（计划书 §5.2.2）。
 

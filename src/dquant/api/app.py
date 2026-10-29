@@ -34,6 +34,7 @@ from dquant.api.routes.exchange_routes import router as exchange_router
 from dquant.api.routes.factor_routes import router as factor_router
 from dquant.api.routes.health_routes import router as health_router
 from dquant.api.routes.market_routes import router as market_router
+from dquant.api.routes.mhd_routes import router as mhd_router
 from dquant.api.routes.signal_routes import router as signal_router
 from dquant.api.routes.strategy_routes import router as strategy_router
 from dquant.api.websocket import ws_manager
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(emergency_router)
     app.include_router(exchange_router)
     app.include_router(market_router)
+    app.include_router(mhd_router)
 
     # 4. 注册 WebSocket 实时流
     @app.websocket("/ws")

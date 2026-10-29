@@ -131,7 +131,13 @@ SYNTH_UNIVERSE = (
 )
 
 # 各周期需要的历史根数 (SMA200 预热 + 分类器 220 根下限 + 缓冲)
-_BARS_NEEDED = {CandleBar.ONE_DAY: 260, CandleBar.FOUR_HOUR: 320, CandleBar.ONE_HOUR: 420}
+_BARS_NEEDED = {
+    CandleBar.ONE_DAY: 260,
+    CandleBar.FOUR_HOUR: 320,
+    CandleBar.ONE_HOUR: 420,
+    CandleBar.FIFTEEN_MINUTE: 2000,
+    CandleBar.FIVE_MINUTE: 3000,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +582,13 @@ class TradingEngine:
             config=UniverseConfig(top_n_by_volume=self.options.top_n, min_history_bars=1),
         )
         inst_ids = selected.selected_inst_ids
-        bars = [CandleBar.ONE_DAY, CandleBar.FOUR_HOUR, CandleBar.ONE_HOUR]
+        bars = [
+            CandleBar.ONE_DAY,
+            CandleBar.FOUR_HOUR,
+            CandleBar.ONE_HOUR,
+            CandleBar.FIFTEEN_MINUTE,
+            CandleBar.FIVE_MINUTE,
+        ]
         written = 0
         for inst_id in inst_ids:
             for bar in bars:
@@ -599,7 +611,11 @@ class TradingEngine:
                         session.commit()
                         return stats.upserted_rows
 
-                written += await asyncio.to_thread(_one)
+                try:
+                    written += await asyncio.to_thread(_one)
+                except Exception as exc:  # noqa: BLE001 - 单个周期失败不应中断其余币种
+                    logger.warning("采集失败 %s %s: %s（继续其他周期）", inst_id, bar.value, exc)
+                    continue
         logger.info("okx 采集完成: %d 行写入, universe=%d", written, len(inst_ids))
         return written
 
@@ -700,6 +716,18 @@ class TradingEngine:
                 for c in load_candles_between(session, inst_id, CandleBar.ONE_DAY, 0, now)
                 if c.confirmed
             ]
+            m15 = [
+                c
+                for c in load_candles_between(
+                    session, inst_id, CandleBar.FIFTEEN_MINUTE, 0, now
+                )
+                if c.confirmed
+            ]
+            m5 = [
+                c
+                for c in load_candles_between(session, inst_id, CandleBar.FIVE_MINUTE, 0, now)
+                if c.confirmed
+            ]
             if len(h1) < 210 or len(h4) < 50 or len(daily) < 2:
                 return None
             highs = [float(c.high) for c in h1]
@@ -754,6 +782,8 @@ class TradingEngine:
                 atr=atr_last,
                 range_candles=tuple(h4[-350:]),
                 timeframe_candles={
+                    CandleBar.FIVE_MINUTE: tuple(m5[-3000:]),
+                    CandleBar.FIFTEEN_MINUTE: tuple(m15[-2000:]),
                     CandleBar.ONE_HOUR: tuple(h1[-500:]),
                     CandleBar.FOUR_HOUR: tuple(h4[-500:]),
                     CandleBar.ONE_DAY: tuple(daily[-500:]),

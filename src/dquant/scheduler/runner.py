@@ -18,6 +18,8 @@ from dquant.scheduler.service import ScreenerService, utc_now_ms
 logger = logging.getLogger(__name__)
 
 BAR_PERIOD_MS: dict[CandleBar, int] = {
+    CandleBar.FIVE_MINUTE: 300_000,
+    CandleBar.FIFTEEN_MINUTE: 900_000,
     CandleBar.ONE_HOUR: 3_600_000,
     CandleBar.FOUR_HOUR: 14_400_000,
     CandleBar.ONE_DAY: 86_400_000,

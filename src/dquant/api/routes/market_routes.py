@@ -38,7 +38,7 @@ _FALLBACK_CANDIDATES: list[dict[str, Any]] = [
     },
 ]
 
-_ALLOWED_BARS = {"15m", "1H", "4H", "1D"}
+_ALLOWED_BARS = {"5m", "15m", "1H", "4H", "1D"}
 
 
 @router.get("/candidates", response_model=list[ScreenerCandidate], summary="获取多因子选币候选池")

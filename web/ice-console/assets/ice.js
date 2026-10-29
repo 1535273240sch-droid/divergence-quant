@@ -71,6 +71,7 @@
     SOL: { key: "SOL", pair: "SOL/USDT", base: 212.84, dec: 2, tick: 0.01, vol: 0.0078, dayChg: 3.2, sizeDec: 1, sizeScale: 45, bullet: "S", vol24: "6.31B", funding: "+0.0075%" }
   };
   var TIMEFRAMES = {
+    "5m": { sec: 300, label: "5m" },
     "15m": { sec: 900, label: "15m" },
     "1H": { sec: 3600, label: "1H" },
     "4H": { sec: 14400, label: "4H" },
