@@ -24,6 +24,7 @@ class BacktestRequest(BaseModel):
     inst_ids: list[str] | None = None
     max_bars: int = Field(default=5000, ge=200, le=10000)
     entry_mode: str = Field(default="body", pattern="^(body|mhd)$")
+    rr_ratio: float = Field(default=1.0, gt=0, le=10)
 
 
 @router.get("/performance", summary="获取各周期最近一次 MHD 回测绩效")
@@ -53,6 +54,7 @@ async def run_backtest(req: BacktestRequest, user: CurrentUser) -> dict[str, Any
         inst_ids=req.inst_ids,
         max_bars=req.max_bars,
         entry_mode=req.entry_mode,
+        rr_ratio=req.rr_ratio,
     )
     return {
         "count": len(stats),

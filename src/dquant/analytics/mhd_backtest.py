@@ -1,4 +1,4 @@
-"""MHD 多周期历史绩效回测。
+﻿"""MHD 多周期历史绩效回测。
 
 使用与实盘 MHD 完全相同的 ``detect_mhd`` 信号、ATR 初始止损和 ATR 移动止损，
 对 5m/15m/1H/4H/1D 逐周期做可重复的历史模拟，并把结果写入 ``backtest_runs`` 表，
@@ -101,15 +101,18 @@ def _simulate_body(
     inst_id: str,
     timeframe: str,
     rows: list[tuple],
+    rr_ratio: float = 1.0,
 ) -> tuple[list[MHDTrade], int]:
-    """固定 1:2 盈亏比的新入场逻辑。
+    """固定盈亏比的新入场逻辑。
 
     实心阴线 → 虚心阳线的第一根阳线收盘开多；
     虚心阳线 → 实心阴线的第一根阴线收盘开空。
-    止损放在入场 K 线的最低/最高点，止盈为 2R。
+    止损放在入场 K 线的最低/最高点，止盈为 ``rr_ratio`` R。
     """
 
     del timeframe
+    if rr_ratio <= 0:
+        raise ValueError("rr_ratio must be positive")
     if len(rows) < 3:
         return [], 0
     opens = [float(row[1]) for row in rows]
@@ -139,7 +142,11 @@ def _simulate_body(
         if entry <= 0 or risk <= 0:
             index += 1
             continue
-        target = entry + 2 * risk if side == "long" else entry - 2 * risk
+        target = (
+            entry + float(rr_ratio) * risk
+            if side == "long"
+            else entry - float(rr_ratio) * risk
+        )
         exit_index = len(rows) - 1
         exit_price = closes[-1]
         reason = "end_of_data"
@@ -153,7 +160,7 @@ def _simulate_body(
                 if highs[j] >= target:
                     exit_index = j
                     exit_price = max(opens[j], target)
-                    reason = "target_2r"
+                    reason = f"target_{rr_ratio:g}r"
                     break
             else:
                 if highs[j] >= stop:
@@ -164,7 +171,7 @@ def _simulate_body(
                 if lows[j] <= target:
                     exit_index = j
                     exit_price = min(opens[j], target)
-                    reason = "target_2r"
+                    reason = f"target_{rr_ratio:g}r"
                     break
         raw_return = (exit_price - entry) / entry * 100
         if side == "short":
@@ -327,12 +334,15 @@ def run_mhd_backtests(
     max_bars: int = DEFAULT_MAX_BARS,
     atr_mult: Decimal = DEFAULT_ATR_MULT,
     entry_mode: str = "body",
+    rr_ratio: float = 1.0,
     persist: bool = True,
 ) -> list[MHDTimeframeStats]:
-    """对指定周期执行 MHD 历史回测；entry_mode=body 使用实心转虚心 1:2 逻辑。"""
+    """对指定周期执行历史回测；body 模式使用实心转虚心 + 固定盈亏比。"""
 
     if entry_mode not in {"body", "mhd"}:
         raise ValueError("entry_mode must be body or mhd")
+    if rr_ratio <= 0:
+        raise ValueError("rr_ratio must be positive")
 
     selected_timeframes = [tf for tf in (timeframes or DEFAULT_TIMEFRAMES)]
     valid = {bar.value for bar in CandleBar}
@@ -350,7 +360,9 @@ def run_mhd_backtests(
             for inst_id in instruments:
                 rows = _load_candles(con, inst_id, timeframe, max_bars)
                 if entry_mode == "body":
-                    trades, signal_count = _simulate_body(inst_id, timeframe, rows)
+                    trades, signal_count = _simulate_body(
+                        inst_id, timeframe, rows, rr_ratio=rr_ratio
+                    )
                 else:
                     trades, signal_count = _simulate_instrument(
                         inst_id, timeframe, rows, MHDConfig(), atr_mult
@@ -384,6 +396,7 @@ def run_mhd_backtests(
             max_bars=max_bars,
             atr_mult=atr_mult,
             entry_mode=entry_mode,
+            rr_ratio=rr_ratio,
         )
     return stats_list
 
@@ -394,6 +407,7 @@ def _persist_results(
     max_bars: int,
     atr_mult: Decimal,
     entry_mode: str,
+    rr_ratio: float,
 ) -> None:
     db_path = _db_path()
     engine = create_engine(f"sqlite:///{db_path.as_posix()}", future=True)
@@ -410,6 +424,7 @@ def _persist_results(
                     params={
                         "timeframe": stats.timeframe,
                         "entry_mode": entry_mode,
+                        "rr_ratio": rr_ratio,
                         "max_bars": max_bars,
                         "atr_mult": float(atr_mult),
                     },
@@ -505,3 +520,4 @@ __all__ = [
     "latest_trades",
     "run_mhd_backtests",
 ]
+
