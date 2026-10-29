@@ -23,8 +23,13 @@ class BacktestRequest(BaseModel):
     timeframes: list[str] = Field(default_factory=lambda: list(DEFAULT_TIMEFRAMES))
     inst_ids: list[str] | None = None
     max_bars: int = Field(default=5000, ge=200, le=10000)
-    entry_mode: str = Field(default="body", pattern="^(body|mhd)$")
+    entry_mode: str = Field(default="mhd_body", pattern="^(body|mhd|mhd_body)$")
     rr_ratio: float = Field(default=1.0, gt=0, le=10)
+    mhd_filter: bool = True
+    mhd_filter_lookback: int = Field(default=20, ge=1, le=200)
+    entry_window: int = Field(default=20, ge=1, le=200)
+    fee_rate: float = Field(default=0.0005, ge=0, le=0.1)
+    slippage_rate: float = Field(default=0.0002, ge=0, le=0.1)
 
 
 @router.get("/performance", summary="获取各周期最近一次 MHD 回测绩效")
@@ -55,6 +60,11 @@ async def run_backtest(req: BacktestRequest, user: CurrentUser) -> dict[str, Any
         max_bars=req.max_bars,
         entry_mode=req.entry_mode,
         rr_ratio=req.rr_ratio,
+        mhd_filter=req.mhd_filter,
+        mhd_filter_lookback=req.mhd_filter_lookback,
+        entry_window=req.entry_window,
+        fee_rate=req.fee_rate,
+        slippage_rate=req.slippage_rate,
     )
     return {
         "count": len(stats),

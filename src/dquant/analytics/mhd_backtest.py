@@ -102,17 +102,26 @@ def _simulate_body(
     timeframe: str,
     rows: list[tuple],
     rr_ratio: float = 1.0,
+    *,
+    mhd_filter: bool = True,
+    mhd_filter_lookback: int = 20,
+    fee_rate: float = 0.0,
+    slippage_rate: float = 0.0,
 ) -> tuple[list[MHDTrade], int]:
     """固定盈亏比的新入场逻辑。
 
     实心阴线 → 虚心阳线的第一根阳线收盘开多；
     虚心阳线 → 实心阴线的第一根阴线收盘开空。
     止损放在入场 K 线的最低/最高点，止盈为 ``rr_ratio`` R。
+    ``mhd_filter`` 开启时，只接受最近 ``mhd_filter_lookback`` 根内已有
+    同方向 MHD 背离确认的 K 线反转信号。
     """
 
     del timeframe
     if rr_ratio <= 0:
         raise ValueError("rr_ratio must be positive")
+    if fee_rate < 0 or slippage_rate < 0:
+        raise ValueError("fee_rate and slippage_rate must not be negative")
     if len(rows) < 3:
         return [], 0
     opens = [float(row[1]) for row in rows]
@@ -124,6 +133,20 @@ def _simulate_body(
         1 if closes[i] > opens[i] else (-1 if closes[i] < opens[i] else 0)
         for i in range(len(rows))
     ]
+    mhd_signals = ()
+    if mhd_filter:
+        mhd_signals = detect_mhd(highs, lows, closes, MHDConfig()).signals
+
+    def mhd_confirmed(side: str, index: int) -> bool:
+        if not mhd_filter:
+            return True
+        expected = "bottom" if side == "long" else "top"
+        return any(
+            signal.kind == expected
+            and 0 <= index - signal.confirmed_index <= mhd_filter_lookback
+            for signal in mhd_signals
+        )
+
     signals = sum(
         1
         for i in range(1, len(rows))
@@ -136,46 +159,60 @@ def _simulate_body(
             index += 1
             continue
         side = "long" if body[index] == 1 else "short"
-        entry = closes[index]
+        if not mhd_confirmed(side, index):
+            index += 1
+            continue
+        raw_entry = closes[index]
+        entry = (
+            raw_entry * (1.0 + slippage_rate)
+            if side == "long"
+            else raw_entry * (1.0 - slippage_rate)
+        )
         stop = lows[index] if side == "long" else highs[index]
-        risk = abs(entry - stop)
+        risk = abs(raw_entry - stop)
         if entry <= 0 or risk <= 0:
             index += 1
             continue
         target = (
-            entry + float(rr_ratio) * risk
+            raw_entry + float(rr_ratio) * risk
             if side == "long"
-            else entry - float(rr_ratio) * risk
+            else raw_entry - float(rr_ratio) * risk
         )
         exit_index = len(rows) - 1
-        exit_price = closes[-1]
+        raw_exit = closes[-1]
         reason = "end_of_data"
         for j in range(index + 1, len(rows)):
             if side == "long":
                 if lows[j] <= stop:
                     exit_index = j
-                    exit_price = min(opens[j], stop)
+                    raw_exit = min(opens[j], stop)
                     reason = "stop_1r"
                     break
                 if highs[j] >= target:
                     exit_index = j
-                    exit_price = max(opens[j], target)
+                    raw_exit = max(opens[j], target)
                     reason = f"target_{rr_ratio:g}r"
                     break
             else:
                 if highs[j] >= stop:
                     exit_index = j
-                    exit_price = max(opens[j], stop)
+                    raw_exit = max(opens[j], stop)
                     reason = "stop_1r"
                     break
                 if lows[j] <= target:
                     exit_index = j
-                    exit_price = min(opens[j], target)
+                    raw_exit = min(opens[j], target)
                     reason = f"target_{rr_ratio:g}r"
                     break
+        exit_price = (
+            raw_exit * (1.0 - slippage_rate)
+            if side == "long"
+            else raw_exit * (1.0 + slippage_rate)
+        )
         raw_return = (exit_price - entry) / entry * 100
         if side == "short":
             raw_return = -raw_return
+        net_return = raw_return - 2.0 * fee_rate * 100.0
         trades.append(
             MHDTrade(
                 inst_id=inst_id,
@@ -184,13 +221,129 @@ def _simulate_body(
                 exit_ts_ms=ts[exit_index],
                 entry_price=entry,
                 exit_price=exit_price,
-                return_pct=raw_return,
+                return_pct=net_return,
                 bars_held=exit_index - index,
                 reason=reason,
             )
         )
         index = exit_index + 1
     return trades, signals
+
+
+def _simulate_mhd_body(
+    inst_id: str,
+    timeframe: str,
+    rows: list[tuple],
+    *,
+    rr_ratio: float = 1.0,
+    entry_window: int = 20,
+    fee_rate: float = 0.0,
+    slippage_rate: float = 0.0,
+) -> tuple[list[MHDTrade], int]:
+    """在现有 MHD 因子方向上，用实心转虚心作为入场触发。
+
+    MHD 底背离 → 等第一根“实心阴线转虚心阳线”的 K 线开多；
+    MHD 顶背离 → 等第一根“虚心阳线转实心阴线”的 K 线开空。
+    止损为入场 K 线低/高点，止盈为 rr_ratio R，固定仓位。
+    """
+
+    del timeframe
+    if rr_ratio <= 0 or entry_window < 1:
+        raise ValueError("rr_ratio and entry_window must be positive")
+    if len(rows) < 3:
+        return [], 0
+    opens = [float(row[1]) for row in rows]
+    highs = [float(row[2]) for row in rows]
+    lows = [float(row[3]) for row in rows]
+    closes = [float(row[4]) for row in rows]
+    ts = [int(row[0]) for row in rows]
+    body = [
+        1 if closes[i] > opens[i] else (-1 if closes[i] < opens[i] else 0)
+        for i in range(len(rows))
+    ]
+    result = detect_mhd(highs, lows, closes, MHDConfig())
+    signals = sorted(result.signals, key=lambda item: (item.confirmed_index, item.d))
+    trades: list[MHDTrade] = []
+    last_exit_index = -1
+    for signal in signals:
+        if signal.confirmed_index <= last_exit_index or signal.confirmed_index >= len(rows) - 1:
+            continue
+        side = "long" if signal.kind == "bottom" else "short"
+        expected = 1 if side == "long" else -1
+        entry_index: int | None = None
+        start = max(1, signal.confirmed_index)
+        end = min(len(rows) - 1, signal.confirmed_index + entry_window + 1)
+        for j in range(start, end):
+            if body[j] == expected and body[j - 1] == -expected:
+                entry_index = j
+                break
+        if entry_index is None or entry_index >= len(rows) - 1:
+            continue
+        raw_entry = closes[entry_index]
+        entry = (
+            raw_entry * (1.0 + slippage_rate)
+            if side == "long"
+            else raw_entry * (1.0 - slippage_rate)
+        )
+        stop = lows[entry_index] if side == "long" else highs[entry_index]
+        risk = abs(raw_entry - stop)
+        if entry <= 0 or risk <= 0:
+            continue
+        target = (
+            raw_entry + float(rr_ratio) * risk
+            if side == "long"
+            else raw_entry - float(rr_ratio) * risk
+        )
+        exit_index = len(rows) - 1
+        raw_exit = closes[-1]
+        reason = "end_of_data"
+        for j in range(entry_index + 1, len(rows)):
+            if side == "long":
+                if lows[j] <= stop:
+                    exit_index = j
+                    raw_exit = min(opens[j], stop)
+                    reason = "stop_1r"
+                    break
+                if highs[j] >= target:
+                    exit_index = j
+                    raw_exit = max(opens[j], target)
+                    reason = f"target_{rr_ratio:g}r"
+                    break
+            else:
+                if highs[j] >= stop:
+                    exit_index = j
+                    raw_exit = max(opens[j], stop)
+                    reason = "stop_1r"
+                    break
+                if lows[j] <= target:
+                    exit_index = j
+                    raw_exit = min(opens[j], target)
+                    reason = f"target_{rr_ratio:g}r"
+                    break
+        exit_price = (
+            raw_exit * (1.0 - slippage_rate)
+            if side == "long"
+            else raw_exit * (1.0 + slippage_rate)
+        )
+        raw_return = (exit_price - entry) / entry * 100
+        if side == "short":
+            raw_return = -raw_return
+        net_return = raw_return - 2.0 * fee_rate * 100.0
+        trades.append(
+            MHDTrade(
+                inst_id=inst_id,
+                side=side,
+                entry_ts_ms=ts[entry_index],
+                exit_ts_ms=ts[exit_index],
+                entry_price=entry,
+                exit_price=exit_price,
+                return_pct=net_return,
+                bars_held=exit_index - entry_index,
+                reason=reason,
+            )
+        )
+        last_exit_index = exit_index
+    return trades, len(signals)
 
 
 def _simulate_instrument(
@@ -333,16 +486,23 @@ def run_mhd_backtests(
     inst_ids: list[str] | None = None,
     max_bars: int = DEFAULT_MAX_BARS,
     atr_mult: Decimal = DEFAULT_ATR_MULT,
-    entry_mode: str = "body",
+    entry_mode: str = "mhd_body",
     rr_ratio: float = 1.0,
+    mhd_filter: bool = True,
+    mhd_filter_lookback: int = 20,
+    entry_window: int = 20,
+    fee_rate: float = 0.0005,
+    slippage_rate: float = 0.0002,
     persist: bool = True,
 ) -> list[MHDTimeframeStats]:
-    """对指定周期执行历史回测；body 模式使用实心转虚心 + 固定盈亏比。"""
+    """对指定周期执行历史回测；mhd_body = MHD 方向 + 实心转虚心入场 + 固定盈亏比。"""
 
-    if entry_mode not in {"body", "mhd"}:
-        raise ValueError("entry_mode must be body or mhd")
+    if entry_mode not in {"body", "mhd", "mhd_body"}:
+        raise ValueError("entry_mode must be body, mhd or mhd_body")
     if rr_ratio <= 0:
         raise ValueError("rr_ratio must be positive")
+    if fee_rate < 0 or slippage_rate < 0:
+        raise ValueError("fee_rate and slippage_rate must not be negative")
 
     selected_timeframes = [tf for tf in (timeframes or DEFAULT_TIMEFRAMES)]
     valid = {bar.value for bar in CandleBar}
@@ -359,9 +519,26 @@ def run_mhd_backtests(
             total_bars = 0
             for inst_id in instruments:
                 rows = _load_candles(con, inst_id, timeframe, max_bars)
-                if entry_mode == "body":
+                if entry_mode == "mhd_body":
+                    trades, signal_count = _simulate_mhd_body(
+                        inst_id,
+                        timeframe,
+                        rows,
+                        rr_ratio=rr_ratio,
+                        entry_window=entry_window,
+                        fee_rate=fee_rate,
+                        slippage_rate=slippage_rate,
+                    )
+                elif entry_mode == "body":
                     trades, signal_count = _simulate_body(
-                        inst_id, timeframe, rows, rr_ratio=rr_ratio
+                        inst_id,
+                        timeframe,
+                        rows,
+                        rr_ratio=rr_ratio,
+                        mhd_filter=mhd_filter,
+                        mhd_filter_lookback=mhd_filter_lookback,
+                        fee_rate=fee_rate,
+                        slippage_rate=slippage_rate,
                     )
                 else:
                     trades, signal_count = _simulate_instrument(
@@ -397,6 +574,11 @@ def run_mhd_backtests(
             atr_mult=atr_mult,
             entry_mode=entry_mode,
             rr_ratio=rr_ratio,
+            mhd_filter=mhd_filter,
+            mhd_filter_lookback=mhd_filter_lookback,
+            entry_window=entry_window,
+            fee_rate=fee_rate,
+            slippage_rate=slippage_rate,
         )
     return stats_list
 
@@ -408,6 +590,11 @@ def _persist_results(
     atr_mult: Decimal,
     entry_mode: str,
     rr_ratio: float,
+    mhd_filter: bool,
+    mhd_filter_lookback: int,
+    entry_window: int,
+    fee_rate: float,
+    slippage_rate: float,
 ) -> None:
     db_path = _db_path()
     engine = create_engine(f"sqlite:///{db_path.as_posix()}", future=True)
@@ -425,6 +612,11 @@ def _persist_results(
                         "timeframe": stats.timeframe,
                         "entry_mode": entry_mode,
                         "rr_ratio": rr_ratio,
+                        "mhd_filter": mhd_filter,
+                        "mhd_filter_lookback": mhd_filter_lookback,
+                        "entry_window": entry_window,
+                        "fee_rate": fee_rate,
+                        "slippage_rate": slippage_rate,
                         "max_bars": max_bars,
                         "atr_mult": float(atr_mult),
                     },

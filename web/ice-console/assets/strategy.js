@@ -190,8 +190,13 @@
       body: {
         timeframes: ["5m", "15m", "1H", "4H", "1D"],
         max_bars: 5000,
-        entry_mode: "body",
-        rr_ratio: 1.0
+        entry_mode: "mhd_body",
+        rr_ratio: 1.0,
+        mhd_filter: true,
+        mhd_filter_lookback: 20,
+        entry_window: 20,
+        fee_rate: 0.0005,
+        slippage_rate: 0.0002
       }
     }).then(function (res) {
       CQ.toast("MHD 多周期回测完成");
