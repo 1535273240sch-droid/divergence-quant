@@ -47,7 +47,7 @@
   }
 
   /* ---------------- 账户与认证 ---------------- */
-  var account = { username: "", connected: false, balance: null };
+  var account = { username: "", connected: false, balance: null, positions: [] };
   var authMode = "login";
 
   function buildAuth() {
@@ -225,6 +225,26 @@
     }
     var dc = document.getElementById("acctDisconnect");
     if (dc) dc.disabled = !account.connected;
+    var positionsEl = document.getElementById("acctPositions");
+    if (positionsEl) {
+      var list = account.positions || [];
+      if (!list.length) {
+        positionsEl.innerHTML = '<div class="agent-loading">暂无持仓</div>';
+      } else {
+        var html = "";
+        list.forEach(function (p) {
+          var up = Number(p.upl) >= 0;
+          html += '<div class="acct-position">' +
+            "<span>" + p.inst_id + "</span>" +
+            '<span class="' + (p.pos_side === "long" ? "up" : "down") + '">' + p.pos_side + "</span>" +
+            "<span>" + Number(p.size).toFixed(2) + " 张</span>" +
+            "<span>" + Number(p.avg_price).toFixed(2) + "</span>" +
+            '<span class="' + (up ? "up" : "down") + '">' + Number(p.upl).toFixed(2) + " USDT</span>" +
+            "</div>";
+        });
+        positionsEl.innerHTML = html;
+      }
+    }
   }
 
   function refreshAccount() {
@@ -237,6 +257,7 @@
       .then(function (a) {
         account.connected = !!a.connected;
         account.balance = a.balance_usdt;
+        account.positions = a.positions || [];
         if (a.connected) {
           var nav = CQ.el("navValue");
           if (nav) nav.textContent = CQ.fmt(a.balance_usdt || 0, 2);
@@ -315,6 +336,7 @@
         account.username = "";
         account.connected = false;
         account.balance = null;
+        account.positions = [];
         applyAuthUI();
         closeAccountDrawer();
         var nav = CQ.el("navValue");
