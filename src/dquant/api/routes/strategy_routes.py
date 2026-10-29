@@ -91,6 +91,11 @@ def _active_names() -> list[str]:
 def _effective_params(class_name: str) -> dict[str, Any]:
     strategy = create_strategy(class_name)
     params = {name: _json_value(value) for name, value in strategy.params.items()}
+    try:
+        configured = load_settings().strategies.params.get(class_name, {})
+        params.update({name: _json_value(value) for name, value in configured.items()})
+    except Exception:  # noqa: BLE001 - 配置读取失败时使用策略默认值
+        pass
     params.update(
         {
             name: _json_value(value)
