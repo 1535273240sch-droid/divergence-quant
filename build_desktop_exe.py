@@ -120,9 +120,9 @@ def _pyinstaller_args(root: Path, version_file: Path) -> list[str]:
         "--paths=src",
         "--collect-all=dquant",
         "--collect-all=websockets",
-        f"--add-data=web/ice-console{os.pathsep}web/ice-console",
-        f"--add-data=config{os.pathsep}config",
-        f"--add-data=assets{os.pathsep}assets",
+        f"--add-data={root / 'web' / 'ice-console'}{os.pathsep}web/ice-console",
+        f"--add-data={root / 'config'}{os.pathsep}config",
+        f"--add-data={root / 'assets'}{os.pathsep}assets",
         f"--icon={root / 'assets' / 'app_icon.ico'}",
         f"--version-file={version_file}",
     ]
