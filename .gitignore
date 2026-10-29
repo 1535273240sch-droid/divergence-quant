@@ -45,3 +45,7 @@ data/**/*.enc
 data/credentials/
 *.enc
 archive/
+
+# Strategy runtime overrides (API writes, engine hot-loads)
+data/strategy_runtime.json
+data/strategy_runtime.json.lock

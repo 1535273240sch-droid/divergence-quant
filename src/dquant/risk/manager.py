@@ -25,7 +25,11 @@ from dquant.contracts import (
     SignalSide,
 )
 
-from .calculator import RiskInputError, calculate_position_size
+from .calculator import (
+    RiskInputError,
+    calculate_fixed_fraction_size,
+    calculate_position_size,
+)
 from .killswitch import KillSwitch
 
 
@@ -139,6 +143,10 @@ class RiskRequest:
     peak_equity: Decimal | None = None
     market: MarketRiskContext = field(default_factory=MarketRiskContext)
     pool_factor: Decimal = Decimal("1")
+    # MHD / 固定比例仓位：position_pct 为名义仓位占权益比例，multiplier 为前端可调倍数。
+    position_pct: Decimal | None = None
+    position_multiplier: Decimal = Decimal("1")
+    leverage: Decimal = Decimal("1")
 
     def __post_init__(self) -> None:
         """校验风控输入的金额、时间和品种一致性。"""
@@ -156,6 +164,22 @@ class RiskRequest:
         object.__setattr__(self, "pool_factor", _decimal(self.pool_factor, "pool_factor"))
         if self.pool_factor < 0:
             raise RiskInputError("pool_factor must not be negative")
+        if self.position_pct is not None:
+            object.__setattr__(
+                self, "position_pct", _decimal(self.position_pct, "position_pct")
+            )
+            if not 0 < self.position_pct <= 1:
+                raise RiskInputError("position_pct must be within (0, 1]")
+        object.__setattr__(
+            self,
+            "position_multiplier",
+            _decimal(self.position_multiplier, "position_multiplier"),
+        )
+        if not 0 < self.position_multiplier <= 3:
+            raise RiskInputError("position_multiplier must be within (0, 3]")
+        object.__setattr__(self, "leverage", _decimal(self.leverage, "leverage"))
+        if not 1 <= self.leverage <= 20:
+            raise RiskInputError("leverage must be within [1, 20]")
 
 
 class RiskManager:
@@ -249,16 +273,29 @@ class RiskManager:
             weekend_factor = self.config.weekend_factor
             factor_notes.append(f"weekend_factor={weekend_factor}")
 
-        sizing = calculate_position_size(
-            equity=normalized.equity,
-            risk_fraction=risk_fraction,
-            entry_price=signal.price,
-            stop_loss_price=signal.stop_loss or signal.price,
-            instrument=instrument,
-            pool_factor=normalized.pool_factor,
-            market_factor=market_factor,
-            weekend_factor=weekend_factor,
-        )
+        if normalized.position_pct is not None:
+            sizing = calculate_fixed_fraction_size(
+                equity=normalized.equity,
+                position_pct=normalized.position_pct,
+                position_multiplier=normalized.position_multiplier,
+                entry_price=signal.price,
+                instrument=instrument,
+            )
+            sizing_mode = "fixed_fraction"
+            decision_risk_fraction = normalized.position_pct
+        else:
+            sizing = calculate_position_size(
+                equity=normalized.equity,
+                risk_fraction=risk_fraction,
+                entry_price=signal.price,
+                stop_loss_price=signal.stop_loss or signal.price,
+                instrument=instrument,
+                pool_factor=normalized.pool_factor,
+                market_factor=market_factor,
+                weekend_factor=weekend_factor,
+            )
+            sizing_mode = "risk_fraction"
+            decision_risk_fraction = risk_fraction
         if sizing.rejected:
             return self._reject(signal, "MIN_ORDER_SIZE", "计算出的数量低于交易所最小下单量")
 
@@ -273,7 +310,16 @@ class RiskManager:
             rule = "AI_HALF_SIZE"
         elif any(note.startswith("weekend_factor") for note in factor_notes):
             rule = "WEEKEND_SIZE"
-        detail = f"风控通过 qty={sizing.qty}; single_tp_mode={sizing.single_tp_mode}"
+        detail = (
+            f"风控通过 qty={sizing.qty}; sizing_mode={sizing_mode}; "
+            f"single_tp_mode={sizing.single_tp_mode}"
+        )
+        if sizing_mode == "fixed_fraction":
+            detail += (
+                f"; position_pct={normalized.position_pct}; "
+                f"position_multiplier={normalized.position_multiplier}; "
+                f"leverage={normalized.leverage}"
+            )
         if factor_notes:
             detail += "; " + ", ".join(factor_notes)
         return RiskDecision(
@@ -282,7 +328,7 @@ class RiskManager:
             rule=rule,
             detail=detail,
             qty=sizing.qty,
-            risk_fraction=risk_fraction,
+            risk_fraction=decision_risk_fraction,
         )
 
     def stop_opening(self, reason: str) -> None:
@@ -323,6 +369,9 @@ class RiskManager:
             peak_equity=None if peak_equity is None else _decimal(peak_equity, "peak_equity"),
             market=getattr(request, "market", MarketRiskContext()),
             pool_factor=_decimal(getattr(request, "pool_factor", 1), "pool_factor"),
+            position_pct=getattr(request, "position_pct", None),
+            position_multiplier=getattr(request, "position_multiplier", 1),
+            leverage=getattr(request, "leverage", 1),
         )
 
     def _update_peak(self, equity: Decimal, explicit_peak: Decimal | None) -> Decimal:

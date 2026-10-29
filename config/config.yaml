@@ -38,13 +38,16 @@ execution:
   confirm_ttl_sec: 900
 
 # 策略模块选择: 单跑写一个, 组合写多个; 顺序即同币种开仓冲突时的优先级
-# params 按策略名覆盖构造参数 (策略自身 enabled 参数优先, 例如 S3 默认关闭)
+# 当前默认运行 MHD 摆动点 MACD 柱背离策略；其余策略仍注册可用，改 active 即可切换
 strategies:
   active:
-    - S1
-    - S2
-    - S3
-  params: {}
+    - MHD
+  params:
+    MHD:
+      position_pct: 0.5
+      position_multiplier: 1.0
+      leverage: 3
+      atr_mult: 2.5
   # params 示例:
   #   S1:
   #     stop_atr: 0.6

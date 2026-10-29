@@ -83,11 +83,16 @@ def divergence_structure_invalidated(ctx: StrategyContext, side: SignalSide) -> 
 
 
 def signal_identifier(
-    strategy_name: str, version: str, ctx: StrategyContext, side: SignalSide
+    strategy_name: str,
+    version: str,
+    ctx: StrategyContext,
+    side: SignalSide,
+    *,
+    ts_ms: int | None = None,
 ) -> str:
     """生成可重复调用且不会因重试改变的信号 ID。"""
 
-    latest_ts = ctx.trigger_candles[-1].ts_ms
+    latest_ts = ctx.trigger_candles[-1].ts_ms if ts_ms is None else int(ts_ms)
     return f"{strategy_name}:{version}:{ctx.candidate.inst_id}:{side.value}:{latest_ts}"
 
 
@@ -100,22 +105,32 @@ def build_open_signal(
     stop_loss: Decimal,
     take_profits: list[TakeProfit],
     reason: str,
+    entry_price: Decimal | None = None,
+    signal_ts_ms: int | None = None,
 ) -> Signal | None:
-    """构造并校验开仓信号；价格关系不成立时返回无信号。"""
+    """构造并校验开仓信号；价格关系不成立时返回无信号。
 
-    price = ctx.trigger_candles[-1].close
+    ``entry_price`` / ``signal_ts_ms`` 允许策略使用独立周期（例如 4H）的
+    确认收盘价与时间戳，而不必复用 1H 触发 K 线。
+    """
+
+    price = ctx.trigger_candles[-1].close if entry_price is None else entry_price
+    if price <= 0:
+        return None
     if side == SignalSide.LONG and stop_loss >= price:
         return None
     if side == SignalSide.SHORT and stop_loss <= price:
         return None
     for take_profit in take_profits:
+        if take_profit.price <= 0:
+            return None
         if side == SignalSide.LONG and take_profit.price <= price:
             return None
         if side == SignalSide.SHORT and take_profit.price >= price:
             return None
 
     return Signal(
-        signal_id=signal_identifier(strategy_name, version, ctx, side),
+        signal_id=signal_identifier(strategy_name, version, ctx, side, ts_ms=signal_ts_ms),
         inst_id=ctx.candidate.inst_id,
         side=side,
         action=SignalAction.OPEN,
@@ -125,24 +140,32 @@ def build_open_signal(
         take_profits=take_profits,
         reason=reason,
         strategy_name=strategy_name,
-        created_ts_ms=ctx.now_ts_ms or ctx.trigger_candles[-1].ts_ms,
+        created_ts_ms=signal_ts_ms or ctx.now_ts_ms or ctx.trigger_candles[-1].ts_ms,
     )
 
 
-def build_close_signal(ctx: StrategyContext, side: SignalSide, reason: str) -> Signal:
+def build_close_signal(
+    ctx: StrategyContext,
+    side: SignalSide,
+    reason: str,
+    *,
+    price: Decimal | None = None,
+    ts_ms: int | None = None,
+) -> Signal:
     """构造平仓信号。"""
 
     strategy_name = ctx.position.strategy if ctx.position is not None else "strategy"
+    entry_price = ctx.trigger_candles[-1].close if price is None else price
     return Signal(
-        signal_id=signal_identifier(strategy_name, "managed", ctx, side) + ":close",
+        signal_id=signal_identifier(strategy_name, "managed", ctx, side, ts_ms=ts_ms) + ":close",
         inst_id=ctx.candidate.inst_id,
         side=side,
         action=SignalAction.CLOSE,
         entry_type="market",
-        price=ctx.trigger_candles[-1].close,
+        price=entry_price,
         reason=reason,
         strategy_name=strategy_name,
-        created_ts_ms=ctx.now_ts_ms or ctx.trigger_candles[-1].ts_ms,
+        created_ts_ms=ts_ms or ctx.now_ts_ms or ctx.trigger_candles[-1].ts_ms,
     )
 
 
@@ -151,21 +174,28 @@ def build_move_stop_signal(
     side: SignalSide,
     stop_loss: Decimal,
     reason: str,
+    *,
+    price: Decimal | None = None,
+    ts_ms: int | None = None,
 ) -> Signal:
     """构造移动止损信号。"""
 
     strategy_name = ctx.position.strategy if ctx.position is not None else "strategy"
+    entry_price = ctx.trigger_candles[-1].close if price is None else price
     return Signal(
-        signal_id=signal_identifier(strategy_name, "managed", ctx, side) + ":move-stop",
+        signal_id=(
+            signal_identifier(strategy_name, "managed", ctx, side, ts_ms=ts_ms)
+            + ":move-stop"
+        ),
         inst_id=ctx.candidate.inst_id,
         side=side,
         action=SignalAction.MOVE_STOP,
         entry_type="market",
-        price=ctx.trigger_candles[-1].close,
+        price=entry_price,
         stop_loss=stop_loss,
         reason=reason,
         strategy_name=strategy_name,
-        created_ts_ms=ctx.now_ts_ms or ctx.trigger_candles[-1].ts_ms,
+        created_ts_ms=ts_ms or ctx.now_ts_ms or ctx.trigger_candles[-1].ts_ms,
     )
 
 

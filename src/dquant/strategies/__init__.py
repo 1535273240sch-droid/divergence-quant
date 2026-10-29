@@ -1,6 +1,7 @@
 """DivergenceQuant 可插拔策略框架。"""
 
 from .base import BaseStrategy, StrategyContext, StrategyInputError
+from .mhd import MHDDivergenceStrategy
 from .registry import (
     StrategyRegistrationError,
     create_strategy,
@@ -16,6 +17,7 @@ from .template_strategy import TemplateStrategy
 
 __all__ = [
     "BaseStrategy",
+    "MHDDivergenceStrategy",
     "S1TrendPullbackStrategy",
     "S2RangeReversalStrategy",
     "S3CounterTrendStrategy",

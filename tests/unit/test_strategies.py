@@ -15,6 +15,7 @@ from dquant.contracts import (
     SignalSide,
 )
 from dquant.strategies import (
+    MHDDivergenceStrategy,
     S1TrendPullbackStrategy,
     S2RangeReversalStrategy,
     S3CounterTrendStrategy,
@@ -125,7 +126,8 @@ def _context(
 
 
 def test_registry_exposes_builtin_strategies_and_s3_is_disabled_by_default() -> None:
-    assert {"S1", "S2", "S3"}.issubset(set(list_strategies()))
+    assert {"MHD", "S1", "S2", "S3"}.issubset(set(list_strategies()))
+    assert isinstance(create_strategy("MHD"), MHDDivergenceStrategy)
     assert isinstance(create_strategy("S1"), S1TrendPullbackStrategy)
     assert isinstance(create_strategy("S2"), S2RangeReversalStrategy)
     assert create_strategy("S3").params["enabled"] is False

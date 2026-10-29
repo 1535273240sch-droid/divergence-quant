@@ -172,6 +172,7 @@ class StrategyInfo(BaseSchema):
     description: str
     params: dict[str, Any]
     current_positions: int = 0
+    formula: str | None = None
 
 
 class UpdateStrategyParamsRequest(BaseSchema):

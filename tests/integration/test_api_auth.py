@@ -249,8 +249,12 @@ def test_emergency_controls(client: TestClient) -> None:
     assert res_status_after.json()["stop_open_enabled"] is False
 
 
-def test_strategy_management_and_audit(client: TestClient) -> None:
+def test_strategy_management_and_audit(client: TestClient, monkeypatch, tmp_path) -> None:
     """测试策略参数读取、更新与审计记录。"""
+
+    monkeypatch.setenv(
+        "DQUANT_STRATEGY_RUNTIME_FILE", str(tmp_path / "strategy_runtime.json")
+    )
     settings = load_api_settings()
     code = compute_totp(settings.admin_totp_secret)
     login_res = client.post(
@@ -263,14 +267,15 @@ def test_strategy_management_and_audit(client: TestClient) -> None:
     )
     headers = {"Authorization": f"Bearer {login_res.json()['access_token']}"}
 
-    # 读取策略列表
+    # 读取策略列表：MHD 必须在注册表中
     res_list = client.get("/api/v1/strategies", headers=headers)
     assert res_list.status_code == 200
     strategies = res_list.json()
-    assert len(strategies) >= 3
+    assert len(strategies) >= 4
+    assert any(item["strategy_id"] == "mhd_divergence" for item in strategies)
 
     # 更新 S1 策略参数
-    new_params = {"atr_period": 20, "sl_atr_mult": 2.0}
+    new_params = {"stop_atr": 2.0}
     res_update = client.put(
         "/api/v1/strategies/s1_trend_pullback/params",
         headers=headers,
@@ -282,4 +287,23 @@ def test_strategy_management_and_audit(client: TestClient) -> None:
     # 验证新参数已生效
     res_list_after = client.get("/api/v1/strategies", headers=headers)
     s1 = next(s for s in res_list_after.json() if s["strategy_id"] == "s1_trend_pullback")
-    assert s1["params"]["atr_period"] == 20
+    assert s1["params"]["stop_atr"] == 2.0
+
+    # 更新 MHD 仓位/杠杆参数，验证热加载文件已写入
+    res_mhd = client.put(
+        "/api/v1/strategies/mhd_divergence/params",
+        headers=headers,
+        json={
+            "params": {"position_pct": 0.4, "position_multiplier": 1.5, "leverage": 5},
+            "reason": "前端测试 MHD 仓位热加载",
+        },
+    )
+    assert res_mhd.status_code == 200
+    mhd = next(
+        s
+        for s in client.get("/api/v1/strategies", headers=headers).json()
+        if s["strategy_id"] == "mhd_divergence"
+    )
+    assert mhd["params"]["position_pct"] == 0.4
+    assert mhd["params"]["position_multiplier"] == 1.5
+    assert mhd["params"]["leverage"] == 5

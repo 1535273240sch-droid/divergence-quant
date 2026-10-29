@@ -12,7 +12,7 @@
     />
     <link rel="preload" href="fonts/jetbrains-mono-500.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="fonts/inter-500.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="assets/ice.css?v=20261026a6" />
+    <link rel="stylesheet" href="assets/ice.css?v=20261029b1" />
     <script>
       (function() {
         var t = localStorage.getItem('cq.theme') || 'obsidian';
@@ -79,6 +79,10 @@
           <button class="search-pill widget-pill" id="factorOpen" type="button" aria-haspopup="dialog" aria-label="因子管理" title="因子管理 · 注册与预览">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 17c3.5 0 3.5-10 7-10s3.5 10 7 10"/></svg>
             <span>因子</span>
+          </button>
+          <button class="search-pill widget-pill" id="strategyOpen" type="button" aria-haspopup="dialog" aria-label="MHD 策略参数" title="MHD 策略 · 仓位 / 杠杆 / ATR">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16"/><path d="m7 15 4-5 3 3 5-7"/></svg>
+            <span>策略</span>
           </button>
           <button class="search-pill theme-pill" id="themeToggle" type="button" aria-label="切换纯黑战情室或冰透银白主题 (快捷键 T)" title="快捷键 T 切换 极致纯黑 / 冰透银白主题">
             <span class="theme-dot" aria-hidden="true"></span>
@@ -366,6 +370,47 @@
       </div>
     </aside>
 
+    <aside class="drawer strategy-drawer" id="strategyDrawer" role="dialog" aria-modal="true" aria-label="MHD 策略模块">
+      <div class="drawer-head">
+        <div>
+          <span class="eyebrow">MHD FACTOR · ATR TRAILING</span>
+          <h2>MHD 策略模块</h2>
+        </div>
+        <button class="icon-btn" id="strategyClose" type="button" aria-label="关闭策略面板">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="drawer-body">
+        <p class="factor-hint">
+          摆动高点/低点比较价格与 MACD 柱：<b>pm</b> = 价格差 / ATR14，<b>hm</b> = 柱差 / stdev(柱,100)，
+          <b>D = pm − hm</b>；D_pair 与上一个同类摆动点比，D_peak 与回看窗口内柱子最极端的摆动点比，取更强值。
+        </p>
+        <section class="factor-form">
+          <h3>仓位与杠杆 <span class="micro">HOT RELOAD</span></h3>
+          <label class="acct-label">仓位比例（%）<input id="mhdPct" type="number" min="1" max="100" step="1" value="50" /></label>
+          <label class="acct-label">仓位倍数<input id="mhdMult" type="number" min="0.1" max="3" step="0.1" value="1" /></label>
+          <label class="acct-label">合约杠杆（x）<input id="mhdLev" type="number" min="1" max="20" step="1" value="3" /></label>
+          <h3>ATR 移动止损</h3>
+          <label class="acct-label">ATR 周期<input id="mhdAtrPeriod" type="number" min="7" max="50" step="1" value="14" /></label>
+          <label class="acct-label">ATR 倍数<input id="mhdAtrMult" type="number" min="0.5" max="10" step="0.1" value="2.5" /></label>
+          <h3>摆动点与触发阈值</h3>
+          <label class="acct-label">左侧摆动窗口<input id="mhdSwingLeft" type="number" min="1" max="10" step="1" value="3" /></label>
+          <label class="acct-label">右侧确认窗口<input id="mhdSwingRight" type="number" min="1" max="10" step="1" value="3" /></label>
+          <label class="acct-label">最小 D 阈值<input id="mhdMinD" type="number" min="0" max="5" step="0.1" value="0.5" /></label>
+          <label class="acct-label">峰值回看窗口<input id="mhdPeakLookback" type="number" min="20" max="300" step="5" value="120" /></label>
+          <div class="factor-preview" id="mhdPreview">登录后可预览预计名义仓位</div>
+          <div class="factor-actions">
+            <button class="btn btn-primary" id="mhdSave" type="button">保存并热加载</button>
+          </div>
+          <p class="factor-auth" id="mhdStatus">参数保存后引擎 30 秒内生效；模拟仓位会按新比例自动调仓。</p>
+        </section>
+        <section class="acct-block">
+          <h3>当前 MHD 模拟持仓</h3>
+          <div id="mhdPositions" class="mhd-positions"><div class="agent-loading">登录后加载持仓…</div></div>
+        </section>
+      </div>
+    </aside>
+
     <aside class="drawer account-drawer" id="accountDrawer" role="dialog" aria-modal="true" aria-label="账户与交易所">
       <div class="drawer-head">
         <div>
@@ -402,8 +447,9 @@
 
     <script src="vendor/lightweight-charts.standalone.production.js"></script>
     <script>window.CQ_LIVE = 1;</script>
-    <script src="assets/ice.js?v=20261026a6"></script>
-    <script src="assets/live.js?v=20261026a6"></script>
-    <script src="assets/factors.js?v=20261026a6"></script>
+    <script src="assets/ice.js?v=20261029b1"></script>
+    <script src="assets/live.js?v=20261029b1"></script>
+    <script src="assets/factors.js?v=20261029b1"></script>
+    <script src="assets/strategy.js?v=20261029b1"></script>
   </body>
 </html>

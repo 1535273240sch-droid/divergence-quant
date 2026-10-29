@@ -834,6 +834,7 @@
     el("palette").classList.remove("is-open");
     el("widgetDrawer").classList.remove("is-open");
     if (el("factorDrawer")) el("factorDrawer").classList.remove("is-open");
+    if (el("strategyDrawer")) el("strategyDrawer").classList.remove("is-open");
     if (el("accountDrawer")) el("accountDrawer").classList.remove("is-open");
     el("scrim").classList.remove("is-open");
   }

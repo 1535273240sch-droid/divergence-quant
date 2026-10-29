@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 import dquant.strategies  # noqa: F401  导入即注册全部内置策略
 from dquant.adapters.base import ExchangeAdapter
-from dquant.contracts import Candle, Instrument, Ticker
+from dquant.contracts import Candle, Instrument, Position, PositionSide, Ticker
 from dquant.contracts.types import CandleBar, InstrumentState, InstrumentType, SignalAction
 from dquant.core.divergence import detect_divergences
 from dquant.core.indicators import atr as atr_series
@@ -52,12 +52,15 @@ from dquant.execution.reconcile import Reconciler
 from dquant.execution.state import build_client_order_id
 from dquant.risk.killswitch import KillSwitch
 from dquant.risk.manager import MarketRiskContext, RiskManager, RiskRequest
+from dquant.runtime import StrategyRuntimeConfig
 from dquant.scheduler.persistence import ScreenerRunStore
 from dquant.scheduler.runner import ScreenerScheduler, bar_period_ms, last_closed_bar_ts
 from dquant.scheduler.service import ScreenerService
 from dquant.security import CredentialStore, CredentialStoreError
 from dquant.settings import AppSettings, load_settings
+from dquant.simulation import PaperBroker
 from dquant.strategies import create_strategy, list_strategies
+from dquant.strategies.atr_stop import trailing_stop
 from dquant.strategies.base import BaseStrategy, StrategyContext
 
 logger = logging.getLogger("dquant.engine")
@@ -291,6 +294,10 @@ def select_signals(
         for ctx in contexts:
             if not strategy.accepts(ctx.candidate):
                 continue
+            position = getattr(ctx, "position", None)
+            if position is not None and position.strategy != strategy.name:
+                # 持仓只能由开仓策略管理，避免 S1/S2/S3/MHD 重复平仓。
+                continue
             for sig in strategy.on_bar(ctx):
                 if sig.signal_id in seen_ids:
                     continue
@@ -352,6 +359,12 @@ class TradingEngine:
         self.instruments: dict[str, Instrument] = {i.inst_id: i for i in _synth_instruments()}
         self.kill_switch = KillSwitch()
         self.risk_manager = RiskManager(instruments=self.instruments, kill_switch=self.kill_switch)
+        self.paper_broker = PaperBroker(self._session_factory, self.instruments)
+        self.runtime_config = StrategyRuntimeConfig()
+        self._runtime_revision = self.runtime_config.revision()
+        self._applied_sizing: tuple[Decimal, Decimal] | None = None
+        self._equity = Decimal("10000")
+        self._last_equity_sync_ms = 0
         self.strategies: list[BaseStrategy] = self._build_strategies()
         self.oms: OMS = OMS(NullGateway(), config=ExecutionConfig(mode="demo"))  # type: ignore[arg-type]
         self._adapter: ExchangeAdapter | None = None
@@ -369,13 +382,19 @@ class TradingEngine:
         return load_settings()
 
     def _build_strategies(self) -> list[BaseStrategy]:
-        """按配置(CLI 覆盖 > config.yaml)从注册器装配策略模块。
+        """按运行时配置 > CLI 覆盖 > config.yaml 从注册器装配策略模块。
 
         - active 列表顺序即同币种开仓冲突时的优先级
         - 未注册的策略名告警并跳过, 不阻断引擎启动
-        - params 按策略名覆盖构造参数; 策略自身 enabled 参数仍最优先
+        - params 先读 config.yaml, 再由 data/strategy_runtime.json 热覆盖
         """
-        active = list(self.options.strategies or self.settings.strategies.active)
+        configured = list(self.settings.strategies.active)
+        runtime_active = self.runtime_config.snapshot()["active"]
+        active = list(
+            self.options.strategies
+            or runtime_active
+            or configured
+        )
         params_map = self.settings.strategies.params
         known = set(list_strategies())
         built: list[BaseStrategy] = []
@@ -383,7 +402,9 @@ class TradingEngine:
             if name not in known:
                 logger.warning("策略 %s 未注册(可用: %s), 已跳过", name, sorted(known))
                 continue
-            built.append(create_strategy(name, params_map.get(name) or None))
+            params = dict(params_map.get(name) or {})
+            params.update(self.runtime_config.params_for(name))
+            built.append(create_strategy(name, params))
         if not built:
             logger.warning("active 策略列表为空, 引擎将只选币不产生交易信号")
         logger.info(
@@ -392,6 +413,24 @@ class TradingEngine:
             [s.name for s in built],
         )
         return built
+
+    def _reload_strategies_if_needed(self) -> None:
+        """检测运行时参数文件变化并热重建策略实例；坏配置不阻断旧实例。"""
+
+        revision = self.runtime_config.revision()
+        if revision == self._runtime_revision:
+            return
+        try:
+            rebuilt = self._build_strategies()
+        except Exception as exc:  # noqa: BLE001 - 配置错误不得让引擎退出
+            logger.error("策略参数热更新失败，保留旧参数: %s", exc)
+            return
+        self.strategies = rebuilt
+        self._runtime_revision = revision
+        logger.info(
+            "策略参数已热更新: %s",
+            {s.name: dict(s.params) for s in rebuilt},
+        )
 
     async def _init_okx(self) -> None:
         from dquant.adapters.okx import OkxAdapter, UrllibTransport
@@ -431,6 +470,7 @@ class TradingEngine:
                 logger.error("OKX 启动对账失败，已保持开仓锁定: %s", exc)
             try:
                 balance = await adapter.fetch_balance()
+                self._equity = balance.total_equity_usd
                 logger.info("密钥验证通过, 模拟盘账户权益: %s USDT", balance.total_equity_usd)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("密钥验证失败 (行情采集不受影响): %s", exc)
@@ -444,11 +484,13 @@ class TradingEngine:
                 instruments=self.instruments,
                 kill_switch=self.kill_switch,
             )
+        self.paper_broker = PaperBroker(self._session_factory, self.instruments)
         logger.info(
-            "engine 初始化完成 source=%s universe=%d dry_run=%s",
+            "engine 初始化完成 source=%s universe=%d dry_run=%s equity=%s",
             self.options.source,
             len(self.instruments),
             self.options.dry_run,
+            self._equity,
         )
 
     # -- 行情采集 ------------------------------------------------------------
@@ -583,7 +625,11 @@ class TradingEngine:
         return inputs
 
     # -- 策略与风控 ------------------------------------------------------------
-    def _build_context(self, candidate) -> StrategyContext | None:  # noqa: ANN001
+    def _build_context(
+        self,
+        candidate,  # noqa: ANN001
+        positions: tuple[Position, ...] = (),
+    ) -> StrategyContext | None:
         session = self._session_factory()
         try:
             inst_id = candidate.inst_id
@@ -642,15 +688,24 @@ class TradingEngine:
                         btc_regime = None
             now_close = h1[-1].ts_ms + bar_period_ms(CandleBar.ONE_HOUR)
             divergence = self._divergence_for(candidate)
+            position = next((item for item in positions if item.inst_id == inst_id), None)
+            if position is not None:
+                position = position.model_copy(update={"mark_price": h4[-1].close})
+            bars_since_entry = (
+                sum(1 for candle in h4 if candle.ts_ms >= position.opened_ts_ms)
+                if position is not None
+                else 0
+            )
             return StrategyContext(
                 candidate=candidate,
                 divergence=divergence,
                 trigger_candles=tuple(h1[-6:]),
                 atr=atr_last,
-                range_candles=tuple(h4[-50:]),
+                range_candles=tuple(h4[-350:]),
                 ma200=ma200_val,
                 btc_regime=btc_regime,
-                position=None,
+                position=position,
+                bars_since_entry=bars_since_entry,
                 daily_close=Decimal(str(round(daily_closes[-1], 8))),
                 daily_ma200=daily_ma200_val,
                 now_ts_ms=now_close,
@@ -674,12 +729,14 @@ class TradingEngine:
         return None
 
     async def strategy_and_risk_cycle(self, record) -> None:  # noqa: ANN001
+        self._reload_strategies_if_needed()
         inputs = self._last_inputs
         if inputs is None:
             return
         contexts: list[StrategyContext] = []
+        positions = tuple(self.paper_broker.list_positions())
         for cand in record.candidates:
-            ctx = self._build_context(cand)
+            ctx = self._build_context(cand, positions)
             if ctx is not None:
                 contexts.append(ctx)
         signals = select_signals(self.strategies, contexts)
@@ -688,33 +745,295 @@ class TradingEngine:
             len(record.candidates), len(contexts), len(signals),
             [s.name for s in self.strategies],
         )
-        equity = Decimal("10000")
         for signal in signals:
+            current_positions = tuple(self.paper_broker.list_positions())
+            strategy = self._strategy_for(signal.strategy_name)
+            position_pct, position_multiplier, leverage = self._sizing_params(strategy)
             request = RiskRequest(
                 signal=signal,
-                equity=equity,
+                equity=self._equity,
                 instrument=self.instruments.get(signal.inst_id),
-                positions=(),
+                positions=current_positions,
                 pending_orders=(),
                 ts_ms=signal.created_ts_ms,
                 daily_pnl=Decimal("0"),
                 weekly_pnl=Decimal("0"),
                 market=MarketRiskContext(),
+                position_pct=position_pct,
+                position_multiplier=position_multiplier,
+                leverage=leverage,
             )
             decision = self.risk_manager.evaluate(request)
+            position = next(
+                (item for item in current_positions if item.inst_id == signal.inst_id),
+                None,
+            )
+            if signal.action is not SignalAction.OPEN and position is not None:
+                decision = decision.model_copy(update={"qty": position.size})
             logger.info(
                 "风控裁决 %s %s %s approved=%s rule=%s qty=%s",
                 signal.strategy_name, signal.inst_id, signal.action.value,
                 decision.approved, decision.rule, decision.qty,
             )
-            self._persist_signal(signal, decision)
-            if decision.approved and decision.qty > 0 and not self.options.dry_run:
-                await self._submit_order(signal, decision)
+            status: str | None = None
+            if decision.approved:
+                if self.options.dry_run or self._gateway is None:
+                    status = self._apply_paper_signal(signal, decision, position)
+                elif signal.action is SignalAction.OPEN:
+                    await self._submit_order(signal, decision)
+                    status = "SUBMITTED"
+                else:
+                    logger.warning(
+                        "执行模式暂未启用自动移动止损/平仓，信号仅记录: %s",
+                        signal.signal_id,
+                    )
+                    status = "PENDING"
+            self._persist_signal(signal, decision, status=status)
 
-    def _persist_signal(self, signal, decision) -> None:  # noqa: ANN001
+    def _strategy_for(self, name: str) -> BaseStrategy | None:
+        return next((item for item in self.strategies if item.name == name), None)
+
+    @staticmethod
+    def _sizing_params(
+        strategy: BaseStrategy | None,
+    ) -> tuple[Decimal | None, Decimal, Decimal]:
+        if strategy is None or "position_pct" not in strategy.params:
+            return None, Decimal("1"), Decimal("1")
+        try:
+            pct = Decimal(str(strategy.params["position_pct"]))
+            multiplier = Decimal(str(strategy.params.get("position_multiplier", 1)))
+            leverage = Decimal(str(strategy.params.get("leverage", 1)))
+        except (ArithmeticError, ValueError):
+            return None, Decimal("1"), Decimal("1")
+        return pct, multiplier, leverage
+
+    def _apply_paper_signal(self, signal, decision, position) -> str:  # noqa: ANN001
+        """把已批准信号落到内部模拟盘，返回写入数据库的状态。"""
+
+        if signal.action is SignalAction.OPEN:
+            if decision.qty <= 0:
+                return "REJECTED"
+            opened = self.paper_broker.open_position(
+                signal=signal,
+                qty=decision.qty,
+                price=signal.price,
+                stop_loss=signal.stop_loss,
+            )
+            if opened is None:
+                logger.warning("模拟开仓失败(缺少合约信息): %s", signal.inst_id)
+                return "REJECTED"
+            logger.info(
+                "模拟开仓完成 %s %s qty=%s price=%s stop=%s",
+                signal.strategy_name,
+                signal.inst_id,
+                decision.qty,
+                signal.price,
+                signal.stop_loss,
+            )
+            return "FILLED"
+
+        if position is None:
+            logger.warning("模拟持仓管理信号找不到持仓: %s", signal.inst_id)
+            return "REJECTED"
+
+        pos_side = PositionSide(signal.side.value)
+        if signal.action is SignalAction.MOVE_STOP:
+            if signal.stop_loss is None:
+                return "REJECTED"
+            updated = self.paper_broker.update_stop(
+                signal.inst_id, pos_side, signal.stop_loss
+            )
+            if updated:
+                logger.info(
+                    "模拟移动止损 %s %s -> %s",
+                    signal.inst_id,
+                    pos_side.value,
+                    signal.stop_loss,
+                )
+            return "MANAGED" if updated else "REJECTED"
+
+        if signal.action in (SignalAction.CLOSE, SignalAction.REDUCE):
+            pnl = self.paper_broker.close_position(signal.inst_id, pos_side, signal.price)
+            logger.info(
+                "模拟平仓完成 %s %s price=%s realized_pnl=%s",
+                signal.inst_id,
+                pos_side.value,
+                signal.price,
+                pnl,
+            )
+            return "CLOSED"
+        return "PENDING"
+
+    # -- 运行时维护：参数热更新、模拟仓位调仓与 ATR 移动止损 ------------------
+    async def maintenance_cycle(self) -> None:
+        """30 秒运行一次：检查参数变更、同步权益、维护模拟仓位。"""
+
+        self._reload_strategies_if_needed()
+        await self._refresh_equity()
+        self._apply_runtime_position_changes()
+        self._manage_paper_positions()
+
+    async def _refresh_equity(self) -> None:
+        if self._adapter is None:
+            return
+        now = utc_now_ms()
+        if now - self._last_equity_sync_ms < 60_000:
+            return
+        self._last_equity_sync_ms = now
+        try:
+            balance = await self._adapter.fetch_balance()
+            if balance.total_equity_usd > 0:
+                self._equity = balance.total_equity_usd
+        except Exception as exc:  # noqa: BLE001 - 权益刷新失败不阻断主循环
+            logger.debug("权益刷新失败: %s", exc)
+
+    def _apply_runtime_position_changes(self) -> None:
+        """前端修改 position_pct / position_multiplier 后，调仓现有模拟仓位。"""
+
+        mhd = self._strategy_for("MHD")
+        if mhd is None:
+            return
+        pct, multiplier, _ = self._sizing_params(mhd)
+        if pct is None:
+            return
+        signature = (pct, multiplier)
+        if self._applied_sizing == signature:
+            return
+        positions = [
+            item for item in self.paper_broker.list_positions() if item.strategy == "MHD"
+        ]
+        for position in positions:
+            candles = self._recent_four_hour_candles(position.inst_id)
+            if not candles:
+                continue
+            price = candles[-1].close
+            target = self.paper_broker.target_size(
+                equity=self._equity,
+                position_pct=pct,
+                position_multiplier=multiplier,
+                price=price,
+                inst_id=position.inst_id,
+            )
+            if target != position.size:
+                updated = self.paper_broker.rebalance(
+                    inst_id=position.inst_id,
+                    pos_side=position.pos_side,
+                    target_size=target,
+                    price=price,
+                )
+                logger.info(
+                    "模拟仓位按新参数调整 %s %s: %s -> %s 张 (pct=%s, multiplier=%s)",
+                    position.inst_id,
+                    position.pos_side.value,
+                    position.size,
+                    None if updated is None else updated.size,
+                    pct,
+                    multiplier,
+                )
+        self._applied_sizing = signature
+
+    def _manage_paper_positions(self) -> None:
+        """对 MHD 模拟持仓执行 ATR 移动止损与止损触发平仓。"""
+
+        mhd = self._strategy_for("MHD")
+        if mhd is None:
+            return
+        try:
+            atr_mult = Decimal(str(mhd.params["atr_mult"]))
+            atr_period = int(mhd.params["atr_period"])
+        except (KeyError, ArithmeticError, ValueError):
+            return
+        for position in self.paper_broker.list_positions():
+            if position.strategy != "MHD":
+                continue
+            candles = self._recent_four_hour_candles(position.inst_id)
+            if len(candles) < max(20, atr_period + 2):
+                continue
+            highs = [float(candle.high) for candle in candles]
+            lows = [float(candle.low) for candle in candles]
+            closes = [float(candle.close) for candle in candles]
+            atr_values = atr_series(highs, lows, closes, atr_period)
+            if not math.isfinite(float(atr_values[-1])) or atr_values[-1] <= 0:
+                continue
+            mark = candles[-1].close
+            atr_last = Decimal(str(float(atr_values[-1])))
+            since_entry = [
+                candle for candle in candles if candle.ts_ms >= position.opened_ts_ms
+            ] or [candles[-1]]
+            self.paper_broker.update_mark(position.inst_id, position.pos_side, mark)
+            if position.pos_side is PositionSide.LONG:
+                reference = max(candle.high for candle in since_entry)
+                if position.stop_loss is not None and mark <= position.stop_loss:
+                    pnl = self.paper_broker.close_position(
+                        position.inst_id, position.pos_side, mark
+                    )
+                    logger.info(
+                        "模拟止损触发 %s long price=%s stop=%s pnl=%s",
+                        position.inst_id,
+                        mark,
+                        position.stop_loss,
+                        pnl,
+                    )
+                    continue
+                candidate = trailing_stop(
+                    position.pos_side, reference, atr_last, atr_mult, position.stop_loss
+                )
+                if candidate > 0 and (
+                    position.stop_loss is None or candidate > position.stop_loss
+                ):
+                    self.paper_broker.update_stop(
+                        position.inst_id, position.pos_side, candidate
+                    )
+                    logger.info(
+                        "模拟移动止损更新 %s long -> %s", position.inst_id, candidate
+                    )
+            else:
+                reference = min(candle.low for candle in since_entry)
+                if position.stop_loss is not None and mark >= position.stop_loss:
+                    pnl = self.paper_broker.close_position(
+                        position.inst_id, position.pos_side, mark
+                    )
+                    logger.info(
+                        "模拟止损触发 %s short price=%s stop=%s pnl=%s",
+                        position.inst_id,
+                        mark,
+                        position.stop_loss,
+                        pnl,
+                    )
+                    continue
+                candidate = trailing_stop(
+                    position.pos_side, reference, atr_last, atr_mult, position.stop_loss
+                )
+                if candidate > 0 and (
+                    position.stop_loss is None or candidate < position.stop_loss
+                ):
+                    self.paper_broker.update_stop(
+                        position.inst_id, position.pos_side, candidate
+                    )
+                    logger.info(
+                        "模拟移动止损更新 %s short -> %s", position.inst_id, candidate
+                    )
+
+    def _recent_four_hour_candles(self, inst_id: str, limit: int = 350) -> list:
+        session = self._session_factory()
+        try:
+            now = utc_now_ms()
+            candles = [
+                candle
+                for candle in load_candles_between(
+                    session, inst_id, CandleBar.FOUR_HOUR, 0, now
+                )
+                if candle.confirmed
+            ]
+            return candles[-limit:]
+        finally:
+            session.close()
+
+    def _persist_signal(self, signal, decision, *, status: str | None = None) -> None:  # noqa: ANN001
         """把策略信号与风控裁决落库，供 API / 前端读取（幂等 upsert）。"""
 
         created_at = datetime.fromtimestamp(signal.created_ts_ms / 1000, tz=UTC)
+        final_status = status or ("PENDING" if decision.approved else "REJECTED")
         try:
             with self._session_factory() as session:
                 session.merge(
@@ -731,7 +1050,7 @@ class TradingEngine:
                             for tp in signal.take_profits
                         ],
                         reason=signal.reason,
-                        status="PENDING" if decision.approved else "REJECTED",
+                        status=final_status,
                         created_at=created_at,
                     )
                 )
@@ -761,6 +1080,10 @@ class TradingEngine:
         if self._gateway is None:
             logger.warning("未配置 OKX 私有凭证，订单仅生成未提交: %s", order.cl_ord_id)
             return
+        strategy = self._strategy_for(signal.strategy_name)
+        _, _, leverage = self._sizing_params(strategy)
+        if leverage >= 1:
+            await self._gateway.set_leverage(signal.inst_id, int(leverage), "isolated")
         ack = await self.oms.submit(order)
         logger.info(
             "订单已提交 OKX: clOrdId=%s ordId=%s state=%s qty=%s",
@@ -792,6 +1115,7 @@ class TradingEngine:
         last_run_id: str | None = None
         while True:
             try:
+                await self.maintenance_cycle()
                 record = await scheduler.poll(utc_now_ms())
                 if record is not None and record.run_id != last_run_id:
                     last_run_id = record.run_id
@@ -802,6 +1126,7 @@ class TradingEngine:
                     )
                     await self.strategy_and_risk_cycle(record)
                     await self.collect_once()
+                    await self.maintenance_cycle()
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
