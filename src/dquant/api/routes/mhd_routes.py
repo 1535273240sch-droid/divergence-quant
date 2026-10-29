@@ -23,6 +23,7 @@ class BacktestRequest(BaseModel):
     timeframes: list[str] = Field(default_factory=lambda: list(DEFAULT_TIMEFRAMES))
     inst_ids: list[str] | None = None
     max_bars: int = Field(default=5000, ge=200, le=10000)
+    entry_mode: str = Field(default="body", pattern="^(body|mhd)$")
 
 
 @router.get("/performance", summary="获取各周期最近一次 MHD 回测绩效")
@@ -36,10 +37,11 @@ async def get_performance(user: OptionalUser) -> dict[str, Any]:
 async def get_trades(
     user: OptionalUser,
     timeframe: str = "1H",
+    mode: str = "body",
 ) -> dict[str, Any]:
     del user
-    trades = latest_trades(timeframe)
-    return {"timeframe": timeframe, "count": len(trades), "trades": trades}
+    trades = latest_trades(timeframe, entry_mode=mode)
+    return {"timeframe": timeframe, "mode": mode, "count": len(trades), "trades": trades}
 
 
 @router.post("/backtest", summary="运行 MHD 多周期历史回测并落库")
@@ -50,6 +52,7 @@ async def run_backtest(req: BacktestRequest, user: CurrentUser) -> dict[str, Any
         timeframes=req.timeframes,
         inst_ids=req.inst_ids,
         max_bars=req.max_bars,
+        entry_mode=req.entry_mode,
     )
     return {
         "count": len(stats),

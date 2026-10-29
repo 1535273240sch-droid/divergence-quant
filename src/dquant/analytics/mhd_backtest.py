@@ -45,6 +45,7 @@ class MHDTrade:
 @dataclass
 class MHDTimeframeStats:
     timeframe: str
+    entry_mode: str
     bars: int
     instruments: int
     signals: int
@@ -94,6 +95,95 @@ def _instrument_ids(
         "SELECT DISTINCT inst_id FROM candles WHERE bar=? ORDER BY inst_id", (timeframe,)
     ).fetchall()
     return [str(row[0]) for row in rows]
+
+
+def _simulate_body(
+    inst_id: str,
+    timeframe: str,
+    rows: list[tuple],
+) -> tuple[list[MHDTrade], int]:
+    """固定 1:2 盈亏比的新入场逻辑。
+
+    实心阴线 → 虚心阳线的第一根阳线收盘开多；
+    虚心阳线 → 实心阴线的第一根阴线收盘开空。
+    止损放在入场 K 线的最低/最高点，止盈为 2R。
+    """
+
+    del timeframe
+    if len(rows) < 3:
+        return [], 0
+    opens = [float(row[1]) for row in rows]
+    highs = [float(row[2]) for row in rows]
+    lows = [float(row[3]) for row in rows]
+    closes = [float(row[4]) for row in rows]
+    ts = [int(row[0]) for row in rows]
+    body = [
+        1 if closes[i] > opens[i] else (-1 if closes[i] < opens[i] else 0)
+        for i in range(len(rows))
+    ]
+    signals = sum(
+        1
+        for i in range(1, len(rows))
+        if body[i] != 0 and body[i - 1] != 0 and body[i] != body[i - 1]
+    )
+    trades: list[MHDTrade] = []
+    index = 1
+    while index < len(rows) - 1:
+        if body[index] == 0 or body[index - 1] == 0 or body[index] == body[index - 1]:
+            index += 1
+            continue
+        side = "long" if body[index] == 1 else "short"
+        entry = closes[index]
+        stop = lows[index] if side == "long" else highs[index]
+        risk = abs(entry - stop)
+        if entry <= 0 or risk <= 0:
+            index += 1
+            continue
+        target = entry + 2 * risk if side == "long" else entry - 2 * risk
+        exit_index = len(rows) - 1
+        exit_price = closes[-1]
+        reason = "end_of_data"
+        for j in range(index + 1, len(rows)):
+            if side == "long":
+                if lows[j] <= stop:
+                    exit_index = j
+                    exit_price = min(opens[j], stop)
+                    reason = "stop_1r"
+                    break
+                if highs[j] >= target:
+                    exit_index = j
+                    exit_price = max(opens[j], target)
+                    reason = "target_2r"
+                    break
+            else:
+                if highs[j] >= stop:
+                    exit_index = j
+                    exit_price = max(opens[j], stop)
+                    reason = "stop_1r"
+                    break
+                if lows[j] <= target:
+                    exit_index = j
+                    exit_price = min(opens[j], target)
+                    reason = "target_2r"
+                    break
+        raw_return = (exit_price - entry) / entry * 100
+        if side == "short":
+            raw_return = -raw_return
+        trades.append(
+            MHDTrade(
+                inst_id=inst_id,
+                side=side,
+                entry_ts_ms=ts[index],
+                exit_ts_ms=ts[exit_index],
+                entry_price=entry,
+                exit_price=exit_price,
+                return_pct=raw_return,
+                bars_held=exit_index - index,
+                reason=reason,
+            )
+        )
+        index = exit_index + 1
+    return trades, signals
 
 
 def _simulate_instrument(
@@ -178,6 +268,7 @@ def _simulate_instrument(
 
 def _build_stats(
     timeframe: str,
+    entry_mode: str,
     trades: list[MHDTrade],
     signals: int,
     bars: int,
@@ -212,6 +303,7 @@ def _build_stats(
     )
     return MHDTimeframeStats(
         timeframe=timeframe,
+        entry_mode=entry_mode,
         bars=bars,
         instruments=instruments,
         signals=signals,
@@ -234,9 +326,13 @@ def run_mhd_backtests(
     inst_ids: list[str] | None = None,
     max_bars: int = DEFAULT_MAX_BARS,
     atr_mult: Decimal = DEFAULT_ATR_MULT,
+    entry_mode: str = "body",
     persist: bool = True,
 ) -> list[MHDTimeframeStats]:
-    """对指定周期执行 MHD 历史回测；结果可选写入 ``backtest_runs`` 表。"""
+    """对指定周期执行 MHD 历史回测；entry_mode=body 使用实心转虚心 1:2 逻辑。"""
+
+    if entry_mode not in {"body", "mhd"}:
+        raise ValueError("entry_mode must be body or mhd")
 
     selected_timeframes = [tf for tf in (timeframes or DEFAULT_TIMEFRAMES)]
     valid = {bar.value for bar in CandleBar}
@@ -253,9 +349,12 @@ def run_mhd_backtests(
             total_bars = 0
             for inst_id in instruments:
                 rows = _load_candles(con, inst_id, timeframe, max_bars)
-                trades, signal_count = _simulate_instrument(
-                    inst_id, timeframe, rows, MHDConfig(), atr_mult
-                )
+                if entry_mode == "body":
+                    trades, signal_count = _simulate_body(inst_id, timeframe, rows)
+                else:
+                    trades, signal_count = _simulate_instrument(
+                        inst_id, timeframe, rows, MHDConfig(), atr_mult
+                    )
                 total_signals += signal_count
                 total_bars = max(total_bars, len(rows))
                 all_trades.extend(trades)
@@ -268,6 +367,7 @@ def run_mhd_backtests(
             stats_list.append(
                 _build_stats(
                     timeframe,
+                    entry_mode,
                     all_trades,
                     total_signals,
                     total_bars,
@@ -279,12 +379,21 @@ def run_mhd_backtests(
         con.close()
 
     if persist and stats_list:
-        _persist_results(stats_list, max_bars=max_bars, atr_mult=atr_mult)
+        _persist_results(
+            stats_list,
+            max_bars=max_bars,
+            atr_mult=atr_mult,
+            entry_mode=entry_mode,
+        )
     return stats_list
 
 
 def _persist_results(
-    stats_list: list[MHDTimeframeStats], *, max_bars: int, atr_mult: Decimal
+    stats_list: list[MHDTimeframeStats],
+    *,
+    max_bars: int,
+    atr_mult: Decimal,
+    entry_mode: str,
 ) -> None:
     db_path = _db_path()
     engine = create_engine(f"sqlite:///{db_path.as_posix()}", future=True)
@@ -300,6 +409,7 @@ def _persist_results(
                     strategy="MHD",
                     params={
                         "timeframe": stats.timeframe,
+                        "entry_mode": entry_mode,
                         "max_bars": max_bars,
                         "atr_mult": float(atr_mult),
                     },
@@ -357,8 +467,8 @@ def latest_results() -> list[dict[str, Any]]:
     return sorted(latest.values(), key=lambda item: order.get(item["timeframe"], 99))
 
 
-def latest_trades(timeframe: str = "1H") -> list[dict[str, Any]]:
-    """读取某周期最近一次回测保存的逐笔交易（目前只持久化 1H 明细）。"""
+def latest_trades(timeframe: str = "1H", entry_mode: str = "body") -> list[dict[str, Any]]:
+    """读取某周期、某入场模式最近一次回测保存的逐笔交易。"""
 
     db_path = _db_path()
     if not db_path.is_file():
@@ -375,6 +485,9 @@ def latest_trades(timeframe: str = "1H") -> list[dict[str, Any]]:
                 .order_by(BacktestRunModel.run_id.desc())
             ).scalars()
             for row in rows:
+                params = row.params if isinstance(row.params, dict) else {}
+                if params.get("entry_mode") != entry_mode:
+                    continue
                 payload = row.metrics_json or {}
                 metrics = payload.get("metrics", {}) if isinstance(payload, dict) else {}
                 trades = metrics.get("trades_detail")

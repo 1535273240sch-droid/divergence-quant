@@ -3189,3 +3189,15 @@ html[data-theme="obsidian"] .table-row:hover {
 }
 .mhd-perf .up { color: var(--bull-bright); }
 .mhd-perf .down { color: var(--bear-bright); }
+
+/* 拖拽 K 线时临时关闭玻璃模糊/环境动画，优先保证图表流畅 */
+body.chart-dragging .glass,
+body.chart-dragging .panel {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+body.chart-dragging .ambient-orb,
+body.chart-dragging .ambient-grid,
+body.chart-dragging .ambient-grain {
+  animation-play-state: paused !important;
+}

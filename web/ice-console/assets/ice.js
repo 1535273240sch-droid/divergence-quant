@@ -353,7 +353,7 @@
     });
 
     var candleSeries = chart.addSeries(LWC.CandlestickSeries, {
-      upColor: "#059669",
+      upColor: "rgba(255,255,255,0)",
       downColor: "#E11D48",
       borderUpColor: "#059669",
       borderDownColor: "#E11D48",
@@ -423,6 +423,29 @@
     state.chart = chart;
     state.candleSeries = candleSeries;
     state.volumeSeries = volumeSeries;
+    var dragTimer = null;
+    function setChartDragging(active) {
+      if (active) document.body.classList.add("chart-dragging");
+      else {
+        clearTimeout(dragTimer);
+        dragTimer = setTimeout(function () {
+          document.body.classList.remove("chart-dragging");
+        }, 180);
+      }
+    }
+    container.addEventListener("pointerdown", function () { setChartDragging(true); });
+    window.addEventListener("pointerup", function () { setChartDragging(false); });
+    container.addEventListener(
+      "wheel",
+      function () {
+        setChartDragging(true);
+        clearTimeout(dragTimer);
+        dragTimer = setTimeout(function () {
+          document.body.classList.remove("chart-dragging");
+        }, 220);
+      },
+      { passive: true }
+    );
     if (LWC.createSeriesMarkers) {
       state.markersApi = LWC.createSeriesMarkers(candleSeries, []);
     }

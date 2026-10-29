@@ -12,7 +12,7 @@
     />
     <link rel="preload" href="fonts/jetbrains-mono-500.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="fonts/inter-500.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="assets/ice.css?v=20261029c10" />
+    <link rel="stylesheet" href="assets/ice.css?v=20261029c12" />
     <script>
       (function() {
         var t = localStorage.getItem('cq.theme') || 'obsidian';
@@ -428,7 +428,7 @@
         </section>
         <section class="acct-block">
           <h3>MHD 多周期绩效 <span class="micro">BACKTEST</span></h3>
-          <p class="factor-hint">同一套 MHD 信号与 ATR 移动止损，分别回测 5m、15m、1H、4H、1D，结果保存到后端数据库。</p>
+          <p class="factor-hint">当前口径：实心阴线转虚心阳线的第一根 K 线开多，反向开空；止损 1R、止盈 2R，固定仓位。结果保存到后端数据库。</p>
           <div class="mhd-perf-actions">
             <button class="btn btn-primary" id="mhdRunBacktest" type="button">运行周期回测</button>
           </div>
@@ -477,9 +477,9 @@
 
     <script src="vendor/lightweight-charts.standalone.production.js"></script>
     <script>window.CQ_LIVE = 1;</script>
-    <script src="assets/ice.js?v=20261029c10"></script>
-    <script src="assets/live.js?v=20261029c10"></script>
-    <script src="assets/factors.js?v=20261029c10"></script>
-    <script src="assets/strategy.js?v=20261029c10"></script>
+    <script src="assets/ice.js?v=20261029c12"></script>
+    <script src="assets/live.js?v=20261029c12"></script>
+    <script src="assets/factors.js?v=20261029c12"></script>
+    <script src="assets/strategy.js?v=20261029c12"></script>
   </body>
 </html>

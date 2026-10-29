@@ -512,7 +512,7 @@
       return Promise.resolve();
     }
     var inst = (CQ.SYMBOLS[ui.symbol] || {}).inst || ui.symbol + "-USDT-SWAP";
-    return http("/mhd/trades?timeframe=1H").then(function (data) {
+    return http("/mhd/trades?timeframe=1H&mode=body").then(function (data) {
       var trades = (data && data.trades) || [];
       var times = {};
       (CQ.state.market && CQ.state.market.candles ? CQ.state.market.candles : []).forEach(function (c) {
@@ -529,17 +529,17 @@
             time: entryTime,
             position: long ? "belowBar" : "aboveBar",
             color: long ? "#059669" : "#E11D48",
-            shape: long ? "arrowUp" : "arrowDown",
-            text: (long ? "开多 " : "开空 ") + Number(t.entry_price).toFixed(2)
+            shape: "circle",
+            text: long ? "开多" : "开空"
           });
         }
         if (times[exitTime]) {
           markers.push({
             time: exitTime,
             position: long ? "aboveBar" : "belowBar",
-            color: "#b45309",
+            color: Number(t.return_pct) >= 0 ? "#059669" : "#E11D48",
             shape: "circle",
-            text: (long ? "平多 " : "平空 ") + Number(t.return_pct).toFixed(2) + "%"
+            text: (Number(t.return_pct) >= 0 ? "+" : "") + Number(t.return_pct).toFixed(2) + "%"
           });
         }
       });
