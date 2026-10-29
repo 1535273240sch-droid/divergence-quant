@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from dquant.analytics.mhd_backtest import (
     DEFAULT_TIMEFRAMES,
     latest_results,
+    latest_trades,
     run_mhd_backtests,
 )
 from dquant.api.auth import CurrentUser, OptionalUser
@@ -29,6 +30,16 @@ async def get_performance(user: OptionalUser) -> dict[str, Any]:
     del user
     rows = latest_results()
     return {"count": len(rows), "results": rows}
+
+
+@router.get("/trades", summary="获取指定周期最近一次回测的开平仓点")
+async def get_trades(
+    user: OptionalUser,
+    timeframe: str = "1H",
+) -> dict[str, Any]:
+    del user
+    trades = latest_trades(timeframe)
+    return {"timeframe": timeframe, "count": len(trades), "trades": trades}
 
 
 @router.post("/backtest", summary="运行 MHD 多周期历史回测并落库")

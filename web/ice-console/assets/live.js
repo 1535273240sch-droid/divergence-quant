@@ -21,6 +21,7 @@
   var liveSignal = null;
   var factorItems = [];
   var factorSelection = {};
+  var showMhdMarkers = true;
 
   var ui = { symbol: "BTC", tf: "4H" };
 
@@ -505,6 +506,50 @@
   }
 
   /* ---------------- 各面板刷新 ---------------- */
+  function refreshMhdMarkers() {
+    if (!showMhdMarkers || ui.tf !== "1H" || !CQ.setTradeMarkers) {
+      if (CQ.clearTradeMarkers) CQ.clearTradeMarkers();
+      return Promise.resolve();
+    }
+    var inst = (CQ.SYMBOLS[ui.symbol] || {}).inst || ui.symbol + "-USDT-SWAP";
+    return http("/mhd/trades?timeframe=1H").then(function (data) {
+      var trades = (data && data.trades) || [];
+      var times = {};
+      (CQ.state.market && CQ.state.market.candles ? CQ.state.market.candles : []).forEach(function (c) {
+        times[c.time] = true;
+      });
+      var markers = [];
+      trades.forEach(function (t) {
+        if (t.inst_id !== inst) return;
+        var entryTime = Math.floor(Number(t.entry_ts_ms) / 1000);
+        var exitTime = Math.floor(Number(t.exit_ts_ms) / 1000);
+        var long = t.side === "long";
+        if (times[entryTime]) {
+          markers.push({
+            time: entryTime,
+            position: long ? "belowBar" : "aboveBar",
+            color: long ? "#059669" : "#E11D48",
+            shape: long ? "arrowUp" : "arrowDown",
+            text: (long ? "开多 " : "开空 ") + Number(t.entry_price).toFixed(2)
+          });
+        }
+        if (times[exitTime]) {
+          markers.push({
+            time: exitTime,
+            position: long ? "aboveBar" : "belowBar",
+            color: "#b45309",
+            shape: "circle",
+            text: (long ? "平多 " : "平空 ") + Number(t.return_pct).toFixed(2) + "%"
+          });
+        }
+      });
+      markers.sort(function (a, b) { return a.time - b.time; });
+      CQ.setTradeMarkers(markers);
+    }).catch(function () {
+      if (CQ.clearTradeMarkers) CQ.clearTradeMarkers();
+    });
+  }
+
   function refreshCandles() {
     var inst = (CQ.SYMBOLS[ui.symbol] || {}).inst || ui.symbol + "-USDT-SWAP";
     return http("/market/candles?inst_id=" + encodeURIComponent(inst) + "&bar=" + ui.tf + "&limit=280")
@@ -517,6 +562,7 @@
         CQ.state.symbol = ui.symbol;
         CQ.state.tf = ui.tf;
         CQ.applyMarket(marketObj);
+        refreshMhdMarkers().catch(function () {});
         if (CQ.state.priceLine && CQ.state.candleSeries) {
           CQ.state.candleSeries.removePriceLine(CQ.state.priceLine);
           CQ.state.priceLine = null;
@@ -1017,6 +1063,16 @@
     token = localStorage.getItem(TOKEN_KEY) || "";
     var applyFactorsBtn = CQ.el("applyFactors");
     if (applyFactorsBtn) applyFactorsBtn.addEventListener("click", applyFactorSelection);
+    var markToggle = CQ.el("markToggle");
+    if (markToggle) {
+      markToggle.addEventListener("click", function () {
+        showMhdMarkers = !showMhdMarkers;
+        markToggle.classList.toggle("is-on", showMhdMarkers);
+        markToggle.setAttribute("aria-pressed", String(showMhdMarkers));
+        if (showMhdMarkers) refreshMhdMarkers().catch(function () {});
+        else if (CQ.clearTradeMarkers) CQ.clearTradeMarkers();
+      });
+    }
     var kicked = false;
     function kick() {
       if (kicked) return;

@@ -103,6 +103,7 @@
     macdSeries: null,
     difSeries: null,
     deaSeries: null,
+    tradeMarkers: [],
     markersApi: null,
     priceLine: null
   };
@@ -460,6 +461,22 @@
     return { hist: hist, dif: difPts, dea: deaPts };
   }
 
+  function applyTradeMarkers() {
+    if (!state.markersApi) return;
+    var base = state.market && state.market.markers ? state.market.markers : [];
+    state.markersApi.setMarkers(base.concat(state.tradeMarkers || []));
+  }
+
+  function setTradeMarkers(markers) {
+    state.tradeMarkers = markers || [];
+    applyTradeMarkers();
+  }
+
+  function clearTradeMarkers() {
+    state.tradeMarkers = [];
+    applyTradeMarkers();
+  }
+
   function applyMarket(market) {
     if (!state.chart || !state.candleSeries) return;
     state.market = market;
@@ -476,7 +493,7 @@
     if (state.macdSeries) state.macdSeries.applyOptions({ visible: state.showMACD });
     if (state.difSeries) state.difSeries.applyOptions({ visible: state.showMACD });
     if (state.deaSeries) state.deaSeries.applyOptions({ visible: state.showMACD });
-    if (state.markersApi) state.markersApi.setMarkers(market.markers);
+    applyTradeMarkers();
     if (state.priceLine) {
       state.candleSeries.removePriceLine(state.priceLine);
       state.priceLine = null;
@@ -1354,6 +1371,8 @@
     applyTheme: applyTheme,
     toggleTheme: toggleTheme,
     applyMarket: applyMarket,
+    setTradeMarkers: setTradeMarkers,
+    clearTradeMarkers: clearTradeMarkers,
     updateStats: updateStats,
     updateQuote: updateQuote,
     updateSymbolUI: updateSymbolUI,

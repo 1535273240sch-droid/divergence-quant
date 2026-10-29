@@ -306,7 +306,7 @@ def _persist_results(
                     period=f"last {max_bars} bars",
                     metrics_json={
                         "created_ts_ms": now_ms,
-                        "metrics": stats.to_dict(),
+                        "metrics": stats.to_dict(include_trades=stats.timeframe == "1H"),
                     },
                     report_path=None,
                 )
@@ -357,4 +357,38 @@ def latest_results() -> list[dict[str, Any]]:
     return sorted(latest.values(), key=lambda item: order.get(item["timeframe"], 99))
 
 
-__all__ = ["DEFAULT_TIMEFRAMES", "MHDTimeframeStats", "latest_results", "run_mhd_backtests"]
+def latest_trades(timeframe: str = "1H") -> list[dict[str, Any]]:
+    """读取某周期最近一次回测保存的逐笔交易（目前只持久化 1H 明细）。"""
+
+    db_path = _db_path()
+    if not db_path.is_file():
+        return []
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}", future=True)
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(engine, future=True)
+    try:
+        with session_factory() as session:
+            rows = session.execute(
+                select(BacktestRunModel)
+                .where(BacktestRunModel.strategy == "MHD")
+                .where(BacktestRunModel.run_id.like(f"mhd-{timeframe}-%"))
+                .order_by(BacktestRunModel.run_id.desc())
+            ).scalars()
+            for row in rows:
+                payload = row.metrics_json or {}
+                metrics = payload.get("metrics", {}) if isinstance(payload, dict) else {}
+                trades = metrics.get("trades_detail")
+                if isinstance(trades, list):
+                    return trades
+    finally:
+        engine.dispose()
+    return []
+
+
+__all__ = [
+    "DEFAULT_TIMEFRAMES",
+    "MHDTimeframeStats",
+    "latest_results",
+    "latest_trades",
+    "run_mhd_backtests",
+]
