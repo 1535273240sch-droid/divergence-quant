@@ -191,6 +191,8 @@
         timeframes: ["5m", "15m", "1H", "4H", "1D"],
         max_bars: 5000,
         entry_mode: "mhd",
+        atr_mult: num("mhdAtrMult", 2.5),
+        atr_period: Math.round(num("mhdAtrPeriod", 14)),
         rr_ratio: 1.0,
         mhd_filter: true,
         mhd_filter_lookback: 20,

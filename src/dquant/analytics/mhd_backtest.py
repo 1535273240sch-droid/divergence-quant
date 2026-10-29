@@ -499,6 +499,7 @@ def run_mhd_backtests(
     inst_ids: list[str] | None = None,
     max_bars: int = DEFAULT_MAX_BARS,
     atr_mult: Decimal = DEFAULT_ATR_MULT,
+    atr_period: int = 14,
     entry_mode: str = "mhd",
     rr_ratio: float = 1.0,
     mhd_filter: bool = True,
@@ -514,6 +515,8 @@ def run_mhd_backtests(
         raise ValueError("entry_mode must be body, mhd or mhd_body")
     if rr_ratio <= 0:
         raise ValueError("rr_ratio must be positive")
+    if atr_period < 2 or atr_period > 200:
+        raise ValueError("atr_period must be between 2 and 200")
     if fee_rate < 0 or slippage_rate < 0:
         raise ValueError("fee_rate and slippage_rate must not be negative")
 
@@ -558,7 +561,7 @@ def run_mhd_backtests(
                         inst_id,
                         timeframe,
                         rows,
-                        MHDConfig(),
+                        MHDConfig(atr_period=atr_period),
                         atr_mult,
                         fee_rate=fee_rate,
                         slippage_rate=slippage_rate,
@@ -591,6 +594,7 @@ def run_mhd_backtests(
             stats_list,
             max_bars=max_bars,
             atr_mult=atr_mult,
+            atr_period=atr_period,
             entry_mode=entry_mode,
             rr_ratio=rr_ratio,
             mhd_filter=mhd_filter,
@@ -607,6 +611,7 @@ def _persist_results(
     *,
     max_bars: int,
     atr_mult: Decimal,
+    atr_period: int,
     entry_mode: str,
     rr_ratio: float,
     mhd_filter: bool,
@@ -638,6 +643,7 @@ def _persist_results(
                         "slippage_rate": slippage_rate,
                         "max_bars": max_bars,
                         "atr_mult": float(atr_mult),
+                        "atr_period": atr_period,
                     },
                     period=f"last {max_bars} bars",
                     metrics_json={

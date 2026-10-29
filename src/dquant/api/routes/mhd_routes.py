@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter
@@ -23,6 +24,8 @@ class BacktestRequest(BaseModel):
     timeframes: list[str] = Field(default_factory=lambda: list(DEFAULT_TIMEFRAMES))
     inst_ids: list[str] | None = None
     max_bars: int = Field(default=5000, ge=200, le=10000)
+    atr_mult: float = Field(default=2.5, gt=0, le=10)
+    atr_period: int = Field(default=14, ge=2, le=200)
     entry_mode: str = Field(default="mhd", pattern="^(body|mhd|mhd_body)$")
     rr_ratio: float = Field(default=1.0, gt=0, le=10)
     mhd_filter: bool = True
@@ -58,6 +61,8 @@ async def run_backtest(req: BacktestRequest, user: CurrentUser) -> dict[str, Any
         timeframes=req.timeframes,
         inst_ids=req.inst_ids,
         max_bars=req.max_bars,
+        atr_mult=Decimal(str(req.atr_mult)),
+        atr_period=req.atr_period,
         entry_mode=req.entry_mode,
         rr_ratio=req.rr_ratio,
         mhd_filter=req.mhd_filter,
