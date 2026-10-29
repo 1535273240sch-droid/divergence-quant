@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any
 
 from dquant.contracts import (
     Candle,
+    CandleBar,
     DivergenceSignal,
     Fill,
     Position,
@@ -40,6 +41,7 @@ class StrategyContext:
     trigger_candles: tuple[Candle, ...]
     atr: Decimal
     range_candles: tuple[Candle, ...] | None = None
+    timeframe_candles: Mapping[CandleBar, Sequence[Candle]] = field(default_factory=dict)
     ma200: Decimal | None = None
     btc_regime: RegimeState | None = None
     position: Position | None = None
@@ -62,6 +64,14 @@ class StrategyContext:
             range_candles = tuple(self.range_candles)
             object.__setattr__(self, "range_candles", range_candles)
             _validate_candles(range_candles, "range_candles")
+
+        timeframe_candles: dict[CandleBar, tuple[Candle, ...]] = {}
+        for bar, candles in dict(self.timeframe_candles or {}).items():
+            bar_value = bar if isinstance(bar, CandleBar) else CandleBar(str(bar))
+            series = tuple(candles)
+            _validate_candles(series, f"timeframe_candles[{bar_value.value}]")
+            timeframe_candles[bar_value] = series
+        object.__setattr__(self, "timeframe_candles", timeframe_candles)
 
         if self.atr <= 0:
             raise StrategyInputError("atr must be greater than zero")

@@ -2675,7 +2675,8 @@ html[data-theme="obsidian"] .table-row:hover {
   font-weight: 500;
   color: var(--slate-500);
 }
-.acct-label input {
+.acct-label input,
+.acct-label select {
   height: 32px;
   padding: 0 9px;
   border-radius: 8px;
@@ -2685,7 +2686,8 @@ html[data-theme="obsidian"] .table-row:hover {
   font-size: 11px;
   color: var(--ink);
 }
-.acct-label input:focus {
+.acct-label input:focus,
+.acct-label select:focus {
   outline: 2px solid rgba(5, 150, 105, 0.35);
   outline-offset: 1px;
 }

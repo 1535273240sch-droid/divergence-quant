@@ -753,6 +753,11 @@ class TradingEngine:
                 trigger_candles=tuple(h1[-6:]),
                 atr=atr_last,
                 range_candles=tuple(h4[-350:]),
+                timeframe_candles={
+                    CandleBar.ONE_HOUR: tuple(h1[-500:]),
+                    CandleBar.FOUR_HOUR: tuple(h4[-500:]),
+                    CandleBar.ONE_DAY: tuple(daily[-500:]),
+                },
                 ma200=ma200_val,
                 btc_regime=btc_regime,
                 position=position,
@@ -1511,23 +1516,37 @@ class TradingEngine:
             await self.strategy_and_risk_cycle(record)
             return
         logger.info("进入常驻循环 interval=%.0fs (Ctrl+C 退出)", self.options.interval_sec)
-        last_run_id: str | None = None
+        # 因子可按 1H 运行；4H 选币记录只负责提供候选池，策略周期按 1H 收盘触发。
+        initial_record = await scheduler.run_manual()
+        self._last_record = initial_record
+        last_record_run_id = initial_record.run_id
+        logger.info(
+            "初始选币完成 run_id=%s candidates=%d",
+            initial_record.run_id,
+            len(initial_record.candidates),
+        )
+        await self.strategy_and_risk_cycle(initial_record)
+        last_1h_ts = last_closed_bar_ts(utc_now_ms(), CandleBar.ONE_HOUR)
         while True:
             try:
                 await self.maintenance_cycle()
-                record = await scheduler.poll(utc_now_ms())
-                if record is not None and record.run_id != last_run_id:
+                now = utc_now_ms()
+                record = await scheduler.poll(now)
+                if record is not None and record.run_id != last_record_run_id:
+                    self._last_record = record
+                    last_record_run_id = record.run_id
                     logger.info(
                         "选币完成 run_id=%s candidates=%d",
                         record.run_id,
                         len(record.candidates),
                     )
-                    # 必须先采集刚收盘的 4H K 线，MHD 才能在确认那根收盘生成信号。
+                current_1h = last_closed_bar_ts(now, CandleBar.ONE_HOUR)
+                if self._last_record is not None and current_1h != last_1h_ts:
+                    # 先采集刚收盘的 1H K 线，再让 MHD 在确认那根收盘生成信号。
                     await self.collect_once()
-                    await self.strategy_and_risk_cycle(record)
+                    await self.strategy_and_risk_cycle(self._last_record)
                     await self.maintenance_cycle()
-                    # 只有采集+策略+维护全部成功后才标记该周期完成；失败下一轮可重试。
-                    last_run_id = record.run_id
+                    last_1h_ts = current_1h
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001

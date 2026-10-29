@@ -92,12 +92,16 @@
     crosshairActive: false,
     showMA: true,
     showVol: true,
+    showMACD: true,
     paletteItems: [],
     paletteIndex: 0,
     chart: null,
     candleSeries: null,
     volumeSeries: null,
     maSeries: {},
+    macdSeries: null,
+    difSeries: null,
+    deaSeries: null,
     markersApi: null,
     priceLine: null
   };
@@ -384,6 +388,36 @@
       });
     });
 
+    // MACD 独立副图：DIF/DEA 线 + 柱状图
+    if (chart.addPane && (!chart.panes || chart.panes().length < 2)) {
+      chart.addPane();
+    }
+    state.macdSeries = chart.addSeries(LWC.HistogramSeries, {
+      priceFormat: { type: "price", precision: 4, minMove: 0.0001 },
+      priceLineVisible: false,
+      lastValueVisible: false,
+      base: 0
+    }, 1);
+    state.difSeries = chart.addSeries(LWC.LineSeries, {
+      color: "#0f766e",
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+      priceFormat: { type: "price", precision: 4, minMove: 0.0001 }
+    }, 1);
+    state.deaSeries = chart.addSeries(LWC.LineSeries, {
+      color: "#b45309",
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+      priceFormat: { type: "price", precision: 4, minMove: 0.0001 }
+    }, 1);
+    if (chart.panes && chart.panes().length > 1 && chart.panes()[1].setHeight) {
+      chart.panes()[1].setHeight(110);
+    }
+
     state.chart = chart;
     state.candleSeries = candleSeries;
     state.volumeSeries = volumeSeries;
@@ -391,6 +425,38 @@
       state.markersApi = LWC.createSeriesMarkers(candleSeries, []);
     }
     chart.subscribeCrosshairMove(onCrosshairMove);
+  }
+
+  function computeMacd(candles) {
+    var closes = candles.map(function (c) { return c.close; });
+    function ema(values, period) {
+      var k = 2 / (period + 1);
+      var out = [];
+      var prev = values[0] || 0;
+      for (var i = 0; i < values.length; i++) {
+        prev = i === 0 ? values[i] : prev + (values[i] - prev) * k;
+        out.push(prev);
+      }
+      return out;
+    }
+    var fast = ema(closes, 12);
+    var slow = ema(closes, 26);
+    var dif = closes.map(function (_, i) { return fast[i] - slow[i]; });
+    var dea = ema(dif, 9);
+    var hist = [];
+    var difPts = [];
+    var deaPts = [];
+    for (var i = 0; i < candles.length; i++) {
+      var h = dif[i] - dea[i];
+      hist.push({
+        time: candles[i].time,
+        value: h,
+        color: h >= 0 ? "rgba(16,185,129,0.62)" : "rgba(244,63,94,0.58)"
+      });
+      difPts.push({ time: candles[i].time, value: dif[i] });
+      deaPts.push({ time: candles[i].time, value: dea[i] });
+    }
+    return { hist: hist, dif: difPts, dea: deaPts };
   }
 
   function applyMarket(market) {
@@ -402,6 +468,13 @@
     [7, 25, 99].forEach(function (p) {
       if (state.maSeries[p]) state.maSeries[p].setData(market.ma[p]);
     });
+    var macd = computeMacd(market.candles);
+    if (state.macdSeries) state.macdSeries.setData(macd.hist);
+    if (state.difSeries) state.difSeries.setData(macd.dif);
+    if (state.deaSeries) state.deaSeries.setData(macd.dea);
+    if (state.macdSeries) state.macdSeries.applyOptions({ visible: state.showMACD });
+    if (state.difSeries) state.difSeries.applyOptions({ visible: state.showMACD });
+    if (state.deaSeries) state.deaSeries.applyOptions({ visible: state.showMACD });
     if (state.markersApi) state.markersApi.setMarkers(market.markers);
     if (state.priceLine) {
       state.candleSeries.removePriceLine(state.priceLine);
@@ -1034,6 +1107,17 @@
       el("volToggle").setAttribute("aria-pressed", String(state.showVol));
       if (state.volumeSeries) state.volumeSeries.applyOptions({ visible: state.showVol });
     });
+
+    if (el("macdToggle")) {
+      el("macdToggle").addEventListener("click", function () {
+        state.showMACD = !state.showMACD;
+        el("macdToggle").classList.toggle("is-on", state.showMACD);
+        el("macdToggle").setAttribute("aria-pressed", String(state.showMACD));
+        [state.macdSeries, state.difSeries, state.deaSeries].forEach(function (series) {
+          if (series) series.applyOptions({ visible: state.showMACD });
+        });
+      });
+    }
 
     el("fsBtn").addEventListener("click", toggleFullscreen);
 

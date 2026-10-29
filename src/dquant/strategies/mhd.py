@@ -68,6 +68,8 @@ class MHDDivergenceStrategy(BaseStrategy):
     )
     default_params = {
         "enabled": True,
+        # 运行周期：1H / 4H / 1D / AUTO（AUTO = 三个周期同时计算并取最强信号）
+        "timeframe": "1H",
         # 摆动点确认参数
         "swing_left": 3,
         "swing_right": 3,
@@ -93,6 +95,10 @@ class MHDDivergenceStrategy(BaseStrategy):
         self._validate_params()
 
     def _validate_params(self) -> None:
+        timeframe = str(self.params.get("timeframe", "1H")).strip().upper()
+        if timeframe not in {"1H", "4H", "1D", "AUTO"}:
+            raise StrategyInputError("timeframe must be one of 1H/4H/1D/AUTO")
+        self.params["timeframe"] = timeframe
         pct = _decimal_param(self.params, "position_pct")
         multiplier = _decimal_param(self.params, "position_multiplier")
         leverage = _decimal_param(self.params, "leverage")
@@ -132,32 +138,58 @@ class MHDDivergenceStrategy(BaseStrategy):
 
         return candidate.inst_id.endswith("-USDT-SWAP")
 
+    def _bars(self) -> list[CandleBar]:
+        timeframe = str(self.params.get("timeframe", "1H")).upper()
+        if timeframe == "AUTO":
+            return [CandleBar.ONE_HOUR, CandleBar.FOUR_HOUR, CandleBar.ONE_DAY]
+        return [CandleBar(timeframe)]
+
+    @staticmethod
+    def _candles_for(ctx: StrategyContext, bar: CandleBar) -> tuple:
+        series = ctx.timeframe_candles.get(bar)
+        if series:
+            return tuple(series)
+        if bar is CandleBar.FOUR_HOUR and ctx.range_candles:
+            return tuple(ctx.range_candles)
+        return ()
+
     def on_bar(self, ctx: StrategyContext) -> list[Signal]:
         if ctx.position is not None:
             return self._manage_position(ctx)
         if not bool(self.params["enabled"]):
             return []
-        candles = ctx.range_candles
         config = self._config()
-        if not candles or len(candles) < config.warmup_bars:
+        candidates: list[tuple[MHDSignal, CandleBar, tuple]] = []
+        for bar in self._bars():
+            candles = self._candles_for(ctx, bar)
+            if not candles or len(candles) < config.warmup_bars:
+                continue
+            if any(candle.bar != bar for candle in candles[-5:]):
+                continue
+            result = detect_mhd(
+                [float(candle.high) for candle in candles],
+                [float(candle.low) for candle in candles],
+                [float(candle.close) for candle in candles],
+                config,
+            )
+            last_index = len(candles) - 1
+            for item in result.signals:
+                if item.confirmed_index == last_index:
+                    candidates.append((item, bar, candles))
+        if not candidates:
             return []
-        if any(candle.bar != CandleBar.FOUR_HOUR for candle in candles[-5:]):
-            return []
-
-        result = detect_mhd(
+        strongest, bar, candles = max(
+            candidates,
+            key=lambda entry: (entry[0].d, entry[1] == CandleBar.ONE_HOUR),
+        )
+        side = SignalSide.SHORT if strongest.kind == "top" else SignalSide.LONG
+        entry = candles[-1].close
+        atr_last = detect_mhd(
             [float(candle.high) for candle in candles],
             [float(candle.low) for candle in candles],
             [float(candle.close) for candle in candles],
             config,
-        )
-        last_index = len(candles) - 1
-        fresh = [item for item in result.signals if item.confirmed_index == last_index]
-        if not fresh:
-            return []
-        strongest = max(fresh, key=lambda item: (item.d, item.kind == "top"))
-        side = SignalSide.SHORT if strongest.kind == "top" else SignalSide.LONG
-        entry = candles[-1].close
-        atr_last = result.atr[-1]
+        ).atr[-1]
         if not math.isfinite(float(atr_last)) or atr_last <= 0:
             atr_last = float(ctx.atr)
         try:
@@ -169,7 +201,7 @@ class MHDDivergenceStrategy(BaseStrategy):
             )
         except ValueError:
             return []
-        reason = self._reason(strongest, side)
+        reason = self._reason(strongest, side, bar)
         signal = build_open_signal(
             ctx,
             strategy_name=self.name,
@@ -183,11 +215,11 @@ class MHDDivergenceStrategy(BaseStrategy):
         )
         return [] if signal is None else [signal]
 
-    def _reason(self, item: MHDSignal, side: SignalSide) -> str:
+    def _reason(self, item: MHDSignal, side: SignalSide, bar: CandleBar) -> str:
         pair_text = "—" if item.d_pair is None else f"{item.d_pair:.2f}"
         peak_text = "—" if item.d_peak is None else f"{item.d_peak:.2f}"
         return (
-            f"MHD v{self.version}：{side.value} 摆动点确认，"
+            f"MHD v{self.version} [{bar.value}]：{side.value} 摆动点确认，"
             f"{'顶背离' if item.kind == 'top' else '底背离'} "
             f"D={item.d:.2f}（D_pair={pair_text}, D_peak={peak_text}, "
             f"reference={item.reference}, pm={item.pm:.2f}, hm={item.hm:.2f}）"
@@ -197,7 +229,8 @@ class MHDDivergenceStrategy(BaseStrategy):
         position = ctx.position
         if position is None:
             return []
-        candles = ctx.range_candles
+        bar = self._bars()[0]
+        candles = self._candles_for(ctx, bar)
         if not candles or len(candles) < self._config().warmup_bars:
             return []
         atr_values = detect_mhd(

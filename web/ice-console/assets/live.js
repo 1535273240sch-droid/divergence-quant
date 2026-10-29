@@ -650,6 +650,7 @@
       var pct = p.position_pct != null ? Math.round(Number(p.position_pct) * 100) + "%" : "—";
       var lev = p.leverage != null ? Number(p.leverage).toFixed(0) + "x" : "—";
       var dd = p.min_d != null ? Number(p.min_d).toFixed(2) : "—";
+      var tf = p.timeframe || "1H";
       html +=
         '<article class="agent' + (selected ? " is-selected" : "") + '" data-factor-id="' + f.strategy_id + '">' +
         '<div class="agent-top"><i class="breath-dot"></i>' +
@@ -657,7 +658,8 @@
         '<span class="agent-state">' + (selected ? "已选" : "未选") + "</span></div>" +
         '<div class="agent-mid"><span class="agent-pair">' + f.strategy_id + '</span>' +
         '<span class="dir ' + (selected ? "dir-long" : "dir-flat") + '">' + (selected ? "RUN" : "IDLE") + "</span></div>" +
-        '<div class="agent-metrics"><span><em>POS</em><b class="num">' + pct + "</b></span>" +
+        '<div class="agent-metrics"><span><em>TF</em><b class="num">' + tf + "</b></span>" +
+        '<span><em>POS</em><b class="num">' + pct + "</b></span>" +
         '<span><em>LEV</em><b class="num">' + lev + "</b></span>" +
         '<span><em>D</em><b class="num">' + dd + "</b></span></div></article>";
     });

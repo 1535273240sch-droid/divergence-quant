@@ -76,6 +76,7 @@
       mhd = (rows || []).filter(function (item) { return item.strategy_id === "mhd_divergence"; })[0] || null;
       if (!mhd) throw { message: "未找到 MHD 策略模块" };
       var p = mhd.params || {};
+      el("mhdTimeframe").value = p.timeframe || "1H";
       el("mhdPct").value = Math.round(Number(p.position_pct == null ? 0.5 : p.position_pct) * 100);
       el("mhdMult").value = p.position_multiplier == null ? 1 : p.position_multiplier;
       el("mhdLev").value = p.leverage == null ? 3 : p.leverage;
@@ -146,6 +147,7 @@
       return;
     }
     var params = {
+      timeframe: (el("mhdTimeframe") && el("mhdTimeframe").value) || "1H",
       position_pct: num("mhdPct", 50) / 100,
       position_multiplier: num("mhdMult", 1),
       leverage: num("mhdLev", 3),

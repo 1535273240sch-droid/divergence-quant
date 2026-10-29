@@ -97,7 +97,7 @@ def test_mhd_emits_short_signal_at_confirmed_top(monkeypatch) -> None:
         lambda *args, **kwargs: _fake_result(signals=(signal,)),
     )
 
-    result = MHDDivergenceStrategy().on_bar(_context(candles))
+    result = MHDDivergenceStrategy({"timeframe": "4H"}).on_bar(_context(candles))
 
     assert len(result) == 1
     opened = result[0]
@@ -127,7 +127,7 @@ def test_mhd_position_management_moves_stop_and_closes(monkeypatch) -> None:
     )
     monkeypatch.setattr(mhd_module, "detect_mhd", lambda *args, **kwargs: _fake_result())
 
-    signals = MHDDivergenceStrategy().on_bar(context)
+    signals = MHDDivergenceStrategy({"timeframe": "4H"}).on_bar(context)
     assert len(signals) == 1
     assert signals[0].action is SignalAction.MOVE_STOP
     assert signals[0].stop_loss == Decimal("120.0")
@@ -135,6 +135,6 @@ def test_mhd_position_management_moves_stop_and_closes(monkeypatch) -> None:
     context2 = context.with_position(
         context.position.model_copy(update={"stop_loss": Decimal("130")})  # type: ignore[union-attr]
     )
-    close_signals = MHDDivergenceStrategy().on_bar(context2)
+    close_signals = MHDDivergenceStrategy({"timeframe": "4H"}).on_bar(context2)
     assert len(close_signals) == 1
     assert close_signals[0].action is SignalAction.CLOSE
